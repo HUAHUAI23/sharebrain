@@ -1,0 +1,11 @@
+node_modules
+.turbo
+dist
+.vite
+coverage
+*.log
+.env
+.env.*
+!.env.example
+bun.lockb
+temp

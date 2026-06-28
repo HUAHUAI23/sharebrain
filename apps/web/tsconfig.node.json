@@ -1,0 +1,9 @@
+{
+  "extends": "@sharebrain/typescript-config/bun",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/tsconfig.node.tsbuildinfo"
+  },
+  "include": ["vite.config.ts"]
+}

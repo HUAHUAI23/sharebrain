@@ -1,0 +1,6 @@
+[install]
+linker = "isolated"
+saveTextLockfile = true
+
+[install.cache]
+disable = false

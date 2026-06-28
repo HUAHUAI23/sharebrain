@@ -1,0 +1,47 @@
+{
+  "name": "@sharebrain/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b tsconfig.json && vite build",
+    "typecheck": "tsc -b tsconfig.json",
+    "preview": "vite preview",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@platejs/ai": "catalog:",
+    "@platejs/basic-nodes": "catalog:",
+    "@platejs/core": "catalog:",
+    "@platejs/yjs": "catalog:",
+    "@sharebrain/config": "workspace:*",
+    "@sharebrain/contracts": "workspace:*",
+    "@sharebrain/i18n": "workspace:*",
+    "@sharebrain/ui": "workspace:*",
+    "@tanstack/react-form": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "@tanstack/react-router": "catalog:",
+    "@tanstack/react-table": "catalog:",
+    "lucide-react": "catalog:",
+    "platejs": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "yjs": "catalog:",
+    "zod": "catalog:",
+    "zustand": "catalog:"
+  },
+  "devDependencies": {
+    "@sharebrain/typescript-config": "workspace:*",
+    "@tailwindcss/vite": "catalog:",
+    "@tanstack/router-cli": "catalog:",
+    "@tanstack/router-plugin": "catalog:",
+    "@types/bun": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}
