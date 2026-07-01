@@ -2,19 +2,19 @@
 
 ## 目标定位
 
-ShareBrain 是面向私有化交付、运维和项目团队的项目周期上下文管理平台。当前阶段只建立开发框架、模块边界和规范知识库，不实现项目、文档、权限、搜索、AI 的业务闭环。
+ShareBrain 是面向私有化交付、运维和项目团队的项目周期上下文管理平台。当前阶段已从框架骨架进入个人业务闭环：支持个人空间、项目、可配置模块、模块记录、Markdown 文档、搜索读模型和媒体上传底座。
 
 ## 技术路线
 
 | 层级 | 技术 | 决策 |
 |------|------|------|
 | Monorepo | Bun workspaces + catalog、Turborepo | Bun 统一包管理和运行时，Turbo 编排 app/package 任务 |
-| Web | React 19、Vite 8、Plate 53、shadcn/ui、Tailwind v4 | 建立 Notion 风格工作台和编辑器边界 |
+| Web | React 19、Vite 8、Plate 53、shadcn/ui、Tailwind v4 | 建立 Notion 风格个人工作台、模块页和 Markdown 编辑器 |
 | 状态与数据 | TanStack Query、Zustand、TanStack Router/Table/Form | Query 管服务端状态，Zustand 管局部 UI 状态 |
-| API | Hono、Zod、OpenAPI | 轻量主业务 API，所有入参出参基于 contract |
+| API | Hono、Zod、OpenAPI | 轻量主业务 API，route/service 分层，所有入参出参基于 contract |
 | 协作 | Hocuspocus、Yjs | 独立 WebSocket 协作服务，保存 CRDT snapshot |
-| 数据 | PostgreSQL、Drizzle ORM | PostgreSQL 作为事实库，开发阶段 Drizzle push 直推 schema |
-| Worker | Bun、轻量 Mastra、Vercel AI SDK | 后台索引、摘要、chunk、embedding 和周期任务 |
+| 数据 | PostgreSQL、Drizzle ORM | PostgreSQL 作为事实库，开发阶段 Drizzle push 直推 schema；模块记录 values 使用 jsonb |
+| Worker | Bun、轻量 Mastra、Vercel AI SDK | 后台索引、摘要、chunk、embedding、媒体 GC 和周期任务 |
 | 国际化 | `packages/i18n` | 默认中文，保留英文消息结构 |
 
 ## 服务边界
@@ -37,12 +37,15 @@ flowchart LR
 - Worker 处理异步派生数据，不写入权限事实源，不绕过 API/domain service。
 - PostgreSQL 保存 CRDT snapshot、Plate JSON、plain text、blocks、search items、chunks、audit logs。
 - AI 最终回答必须基于 Context Pack，并附带可追溯证据来源。
+- 自定义模块字段定义存表，记录值存 `module_records.values jsonb`，并按不可变 fieldId 存储。
+- 用户内容时间线统一使用 `module_records`，`timeline_events` 不再作为用户内容事实源。
+- 媒体对象使用 S3/MinIO 私有 bucket，API 按权限签发短时 URL，引用事实源为 `media_usages`。
 
 ## MVP 阶段顺序
 
-1. 基础项目、文档、Plate、Hocuspocus、Yjs snapshot。
-2. 文档 block 抽取、`search_items`、全局和项目内搜索。
-3. 时间线、文档关联事件、模板化复盘和交接。
+1. 个人项目、模块、记录、文档、媒体和搜索读模型。
+2. 正式登录、团队、邀请链接和成员管理。
+3. Hocuspocus/Yjs 协作启用，worker 异步物化版本和索引。
 4. Context Pack、项目知识问答、AI draft/suggestion。
 
 ## 官方资料核对记录

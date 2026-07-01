@@ -16,9 +16,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "db:push": "drizzle-kit push --config drizzle.config.ts",
+    "db:push": "drizzle-kit push --config drizzle.config.ts --force",
     "db:reset": "bun src/scripts/reset.ts",
     "db:reset:push": "bun run db:reset && bun run db:push",
+    "db:seed": "bun src/scripts/seed.ts",
     "db:studio": "drizzle-kit studio --config drizzle.config.ts"
   },
   "dependencies": {

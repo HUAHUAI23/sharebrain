@@ -1,19 +1,52 @@
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
+const envBoolean = z.preprocess((value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["false", "0", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return value;
+}, z.boolean());
+
 export const serverEnvSchema = {
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().url().default("postgres://sharebrain:sharebrain@127.0.0.1:5432/sharebrain"),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   COLLAB_PORT: z.coerce.number().int().min(1).max(65535).default(3002),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(2),
+  DEV_AUTH_USER_ID: z.string().uuid().default("00000000-0000-4000-8000-000000000001"),
+  DEV_AUTH_TENANT_ID: z.string().uuid().default("00000000-0000-4000-8000-000000000101"),
+  DEV_AUTH_ROLE: z.enum(["viewer", "editor", "admin", "auditor"]).default("admin"),
+  AUTH_PASSWORD_REGISTRATION_ENABLED: envBoolean.default(true),
+  AUTH_DEV_BYPASS_ENABLED: envBoolean.default(true),
+  AUTH_SESSION_COOKIE_NAME: z.string().min(1).default("sharebrain_session"),
+  AUTH_SESSION_EXPIRES_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+  S3_ENDPOINT: z.string().url().default("http://127.0.0.1:9000"),
+  S3_REGION: z.string().default("us-east-1"),
+  S3_ACCESS_KEY_ID: z.string().default("minioadmin"),
+  S3_SECRET_ACCESS_KEY: z.string().default("minioadmin"),
+  S3_BUCKET: z.string().default("sharebrain-dev"),
+  S3_FORCE_PATH_STYLE: envBoolean.default(true),
+  MEDIA_UPLOAD_MAX_BYTES: z.coerce.number().int().min(1).default(25 * 1024 * 1024),
+  MEDIA_UPLOAD_EXPIRES_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
+  MEDIA_READ_URL_EXPIRES_SECONDS: z.coerce.number().int().min(60).max(3600).default(300),
   AI_MODEL_PROVIDER: z.string().default("openai-compatible"),
   AI_BASE_URL: z.string().url().optional().or(z.literal("")),
   AI_API_KEY: z.string().optional().or(z.literal("")),
 } as const;
 
 export const clientEnvSchema = {
-  WEB_PUBLIC_API_BASE_URL: z.string().url().default("http://localhost:3001"),
+  WEB_PUBLIC_API_BASE_URL: z.string().url().optional().or(z.literal("")).default(""),
   WEB_PUBLIC_COLLAB_WS_URL: z.string().url().default("ws://localhost:3002"),
 } as const;
 

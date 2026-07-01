@@ -1,0 +1,47 @@
+import { OpenAPIHono } from "@hono/zod-openapi";
+
+import type { AppEnv } from "../../app/types";
+import { DocumentsService } from "./documents.service";
+
+export function createDocumentsRoutes() {
+  const app = new OpenAPIHono<AppEnv>();
+
+  app.get("/api/projects/:projectId/documents", async (context) => {
+    const service = new DocumentsService(context.var.db);
+    return context.json({
+      items: await service.listByProject(
+        context.var.auth,
+        context.req.param("projectId"),
+        context.req.query("moduleId"),
+        context.req.query("moduleRecordId"),
+      ),
+    });
+  });
+
+  app.post("/api/projects/:projectId/documents", async (context) => {
+    const service = new DocumentsService(context.var.db);
+    return context.json(await service.create(context.var.auth, context.req.param("projectId"), await context.req.json()), 201);
+  });
+
+  app.get("/api/documents/:documentId", async (context) => {
+    const service = new DocumentsService(context.var.db);
+    return context.json(await service.get(context.var.auth, context.req.param("documentId")));
+  });
+
+  app.patch("/api/documents/:documentId", async (context) => {
+    const service = new DocumentsService(context.var.db);
+    return context.json(await service.update(context.var.auth, context.req.param("documentId"), await context.req.json()));
+  });
+
+  app.delete("/api/documents/:documentId", async (context) => {
+    const service = new DocumentsService(context.var.db);
+    return context.json(await service.softDelete(context.var.auth, context.req.param("documentId")));
+  });
+
+  app.post("/api/documents/:documentId/restore", async (context) => {
+    const service = new DocumentsService(context.var.db);
+    return context.json(await service.restore(context.var.auth, context.req.param("documentId")));
+  });
+
+  return app;
+}

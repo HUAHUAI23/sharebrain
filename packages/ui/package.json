@@ -4,23 +4,24 @@
   "private": true,
   "type": "module",
   "sideEffects": ["**/*.css"],
+  "imports": {
+    "#components/*": "./src/components/*.tsx",
+    "#hooks/*": "./src/hooks/*.ts",
+    "#lib/*": "./src/lib/*.ts"
+  },
   "exports": {
     "./globals.css": "./src/styles/globals.css",
-    "./components/button": {
-      "types": "./src/components/button.tsx",
-      "default": "./src/components/button.tsx"
+    "./components/*": {
+      "types": "./src/components/*.tsx",
+      "default": "./src/components/*.tsx"
     },
-    "./components/input": {
-      "types": "./src/components/input.tsx",
-      "default": "./src/components/input.tsx"
+    "./hooks/*": {
+      "types": "./src/hooks/*.ts",
+      "default": "./src/hooks/*.ts"
     },
-    "./components/surface": {
-      "types": "./src/components/surface.tsx",
-      "default": "./src/components/surface.tsx"
-    },
-    "./lib/utils": {
-      "types": "./src/lib/utils.ts",
-      "default": "./src/lib/utils.ts"
+    "./lib/*": {
+      "types": "./src/lib/*.ts",
+      "default": "./src/lib/*.ts"
     }
   },
   "scripts": {
@@ -28,13 +29,28 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@base-ui/react": "catalog:",
+    "@hookform/resolvers": "catalog:",
+    "@shadcn/react": "catalog:",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
+    "cmdk": "catalog:",
+    "date-fns": "catalog:",
+    "embla-carousel-react": "catalog:",
+    "input-otp": "catalog:",
     "lucide-react": "catalog:",
+    "radix-ui": "catalog:",
     "react": "catalog:",
+    "react-day-picker": "catalog:",
     "react-dom": "catalog:",
+    "react-hook-form": "catalog:",
+    "react-resizable-panels": "catalog:",
+    "recharts": "catalog:",
+    "sonner": "catalog:",
     "tailwind-merge": "catalog:",
-    "tw-animate-css": "catalog:"
+    "tw-animate-css": "catalog:",
+    "vaul": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@sharebrain/typescript-config": "workspace:*",

@@ -32,6 +32,7 @@ UI 参考 Notion 的主设计气质：中性、克制、内容优先、低装饰
 ## 布局
 
 - 第一屏必须是可用工作台，而不是 landing page。
+- 未登录第一屏只展示必要的登录/注册表单，不做营销页或产品介绍页。
 - 操作面板、文档区、搜索区保持高信息密度。
 - 页面 section 不嵌套卡片；卡片只用于重复条目、工具面板、modal。
 - 固定格式元素要有稳定尺寸，避免 hover 或动态文本导致布局跳动。
@@ -41,11 +42,23 @@ UI 参考 Notion 的主设计气质：中性、克制、内容优先、低装饰
 ## 组件
 
 - 基础组件来自 `packages/ui`，按 shadcn 组件形态维护。
+- `packages/ui` 是 shadcn 基础组件唯一维护位置；业务组件只在 `apps/web/src/components` 或 feature 内维护。
+- Tailwind token 来自 `packages/ui/src/styles/globals.css` 的语义变量和 `@theme inline` 映射；业务页面样式可写在 `apps/web/src/styles/app.css`，但不得在其中重新定义基础组件库。
+- Tailwind className 必须优先使用项目 token 和标准 utility；只有 Radix/shadcn CSS 变量、复杂布局约束或明确 Notion 视觉规格才允许使用 arbitrary value。
+- 业务组件不要直接散落 `rounded-[4px]`、`mt-[1px]`、`space-y-[1px]`、`text-[3vw]` 等写法；应使用 `rounded-sm`、`mt-px`、`space-y-px`、固定字号 token 或局部 CSS。
+- CSS 变量型样式使用 Tailwind v4 shorthand，例如 `border-(--token)`、`ring-(--ring-soft)`、`bg-(--token)`。
+- Button、Input、Card、Dialog 等基础组件默认应紧凑、低阴影、弱边框、弱 focus ring，避免 shadcn 默认强卡片和强阴影直接暴露到业务页。
+- TooltipProvider 和 Toaster 由 `packages/ui` 的 `UIProvider` 统一提供；业务 feature 不重复挂基础 UI provider。
 - 图标按钮使用 lucide-react。
+- 块级列表行、页面图标、空态、顶部栏、分段控制等跨页面 Notion 形态使用 `@sharebrain/ui/components/notion` primitives，不在 app 全局 CSS 中重复定义。
+- Notion 风格新建入口使用块级 `+` 行：整行浅灰 hover、无强按钮边框、图标为单色 `Plus`；不能只因标题为空禁用提交，空标题应创建“未命名...”对象或在行内显示错误。
+- 跨页面复用的新建行使用 `@sharebrain/ui/components/notion-create-row`，app CSS 只允许对具体业务布局做少量 `data-slot` 覆盖。
 - 二元设置用 switch/checkbox。
 - 模式切换用 segmented/tabs。
 - 数值配置用 slider/stepper/input。
 - 菜单选项用 menu/select。
+- 项目模块只按 `timeline` 和 `collection` 两种原型渲染，不按“日志/背景/知识库/自定义”写死四套页面。
+- 动态字段表单标签来自字段定义，提交值必须按不可变 fieldId 组织。
 
 ## 文案
 

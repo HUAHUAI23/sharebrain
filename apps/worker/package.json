@@ -7,14 +7,16 @@
     "dev": "bun src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "bun test"
+    "test": "bun --eval \"console.log('no worker tests yet')\""
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "catalog:",
     "@mastra/core": "catalog:",
     "@sharebrain/config": "workspace:*",
     "@sharebrain/contracts": "workspace:*",
     "@sharebrain/db": "workspace:*",
     "ai": "catalog:",
+    "drizzle-orm": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

@@ -20,12 +20,16 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "catalog:",
+    "@aws-sdk/s3-presigned-post": "catalog:",
+    "@aws-sdk/s3-request-presigner": "catalog:",
     "@hono/zod-openapi": "catalog:",
     "@hono/zod-validator": "catalog:",
     "@scalar/hono-api-reference": "catalog:",
     "@sharebrain/config": "workspace:*",
     "@sharebrain/contracts": "workspace:*",
     "@sharebrain/db": "workspace:*",
+    "drizzle-orm": "catalog:",
     "hono": "catalog:",
     "zod": "catalog:"
   },

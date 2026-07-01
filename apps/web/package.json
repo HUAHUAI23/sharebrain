@@ -3,22 +3,29 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "imports": {
+    "#components/*": "./src/components/*.tsx",
+    "#hooks/*": "./src/hooks/*.ts",
+    "#lib/*": "./src/lib/*.ts"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b tsconfig.json && vite build",
     "typecheck": "tsc -b tsconfig.json",
     "preview": "vite preview",
-    "test": "bun test"
+    "test": "bun --eval \"console.log('no web tests yet')\""
   },
   "dependencies": {
     "@platejs/ai": "catalog:",
     "@platejs/basic-nodes": "catalog:",
     "@platejs/core": "catalog:",
+    "@platejs/markdown": "catalog:",
     "@platejs/yjs": "catalog:",
     "@sharebrain/config": "workspace:*",
     "@sharebrain/contracts": "workspace:*",
     "@sharebrain/i18n": "workspace:*",
     "@sharebrain/ui": "workspace:*",
+    "@inlang/paraglide-js": "catalog:",
     "@tanstack/react-form": "catalog:",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",

@@ -1,5 +1,8 @@
 import { loadServerEnv } from "@sharebrain/config";
-import { workerHealthResponseSchema } from "@sharebrain/contracts";
+import { authContextSchema, workerHealthResponseSchema } from "@sharebrain/contracts";
+import { createDatabaseClient } from "@sharebrain/db";
+
+import { runMediaGarbageCollection } from "./jobs/media-gc";
 
 const env = loadServerEnv();
 
@@ -12,10 +15,18 @@ export function getWorkerHealth() {
 }
 
 if (import.meta.main) {
+  const db = createDatabaseClient(env.DATABASE_URL);
+  const auth = authContextSchema.parse({
+    userId: env.DEV_AUTH_USER_ID,
+    tenantId: env.DEV_AUTH_TENANT_ID,
+    role: env.DEV_AUTH_ROLE,
+    requestId: "worker-startup",
+  });
+  const gc = await runMediaGarbageCollection(db, auth);
   console.info(
     `ShareBrain worker started with concurrency=${env.WORKER_CONCURRENCY}. ${JSON.stringify(
       getWorkerHealth(),
-    )}`,
+    )}. mediaGc=${JSON.stringify(gc)}`,
   );
 
   await new Promise(() => {

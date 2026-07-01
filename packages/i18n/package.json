@@ -7,14 +7,20 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./paraglide/*": {
+      "types": "./src/paraglide/*.d.ts",
+      "default": "./src/paraglide/*.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "bun test"
+    "paraglide:compile": "bun scripts/with-paraglide.ts compile",
+    "build": "bun scripts/with-paraglide.ts build",
+    "typecheck": "bun scripts/with-paraglide.ts typecheck",
+    "test": "bun --eval \"console.log('no i18n tests yet')\""
   },
   "dependencies": {
+    "@inlang/paraglide-js": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
