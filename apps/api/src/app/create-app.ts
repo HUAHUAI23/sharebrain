@@ -12,6 +12,7 @@ import {
   type AppDependencies,
 } from "./middleware";
 import type { AppEnv } from "./types";
+import { createAiRoutes } from "../modules/ai/ai.routes";
 import { createAuthRoutes } from "../modules/auth/auth.routes";
 import { createDocumentsRoutes } from "../modules/documents/documents.routes";
 import { createMeRoutes } from "../modules/me/me.routes";
@@ -67,6 +68,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.route("/", createDocumentsRoutes());
   app.route("/", createSearchRoutes());
   app.route("/", createMediaRoutes());
+  app.route("/", createAiRoutes());
 
   app.onError((error, context) => {
     if (isApiError(error)) {

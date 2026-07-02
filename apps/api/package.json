@@ -20,7 +20,9 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "catalog:",
     "@aws-sdk/client-s3": "catalog:",
+    "ai": "catalog:",
     "@aws-sdk/s3-presigned-post": "catalog:",
     "@aws-sdk/s3-request-presigner": "catalog:",
     "@hono/zod-openapi": "catalog:",

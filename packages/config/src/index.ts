@@ -43,6 +43,8 @@ export const serverEnvSchema = {
   AI_MODEL_PROVIDER: z.string().default("openai-compatible"),
   AI_BASE_URL: z.string().url().optional().or(z.literal("")),
   AI_API_KEY: z.string().optional().or(z.literal("")),
+  AI_MODEL: z.string().default("gpt-4o-mini"),
+  AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1).max(32768).default(4096),
 } as const;
 
 export const clientEnvSchema = {
