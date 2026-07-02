@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node src/index.ts",
+    "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun --eval \"console.log('no collab tests yet')\""
@@ -13,12 +13,17 @@
     "@hocuspocus/server": "catalog:",
     "@sharebrain/config": "workspace:*",
     "@sharebrain/contracts": "workspace:*",
+    "@sharebrain/db": "workspace:*",
+    "@slate-yjs/core": "catalog:",
+    "drizzle-orm": "catalog:",
+    "slate": "catalog:",
     "yjs": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@sharebrain/typescript-config": "workspace:*",
     "@types/bun": "catalog:",
+    "tsx": "catalog:",
     "typescript": "catalog:"
   }
 }

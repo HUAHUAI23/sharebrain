@@ -1,33 +1,56 @@
 import {
   Server,
   type onAuthenticatePayload,
+  type onLoadDocumentPayload,
   type onStoreDocumentPayload,
 } from "@hocuspocus/server";
 import { loadServerEnv } from "@sharebrain/config";
+import { createDatabaseClient } from "@sharebrain/db";
+import * as Y from "yjs";
+
+import { type CollabContext, resolveCollabContext } from "./auth";
+import { loadDocumentSnapshot, storeDocumentSnapshot } from "./document-store";
 
 const env = loadServerEnv();
 
-type CollabContext = {
-  userId: string;
-  role: "viewer" | "editor" | "admin";
-};
-
-export function createCollabServer() {
+export function createCollabServer(db = createDatabaseClient(env.DATABASE_URL)) {
   return new Server<CollabContext>({
     name: "sharebrain-collab",
     port: env.COLLAB_PORT,
-    async onAuthenticate({ token }: onAuthenticatePayload<CollabContext>) {
-      if (!token) {
-        throw new Error("协作连接缺少访问令牌。");
+    // onStoreDocument 由 Hocuspocus 防抖（默认 2s/10s），不在每次击键时落库。
+    async onAuthenticate({
+      documentName,
+      requestHeaders,
+      connectionConfig,
+    }: onAuthenticatePayload<CollabContext>) {
+      const context = await resolveCollabContext(db, env, { documentName, requestHeaders });
+
+      if (context.role === "viewer" || context.role === "auditor") {
+        connectionConfig.readOnly = true;
       }
 
-      return {
-        userId: "framework-user",
-        role: "editor",
-      };
+      return context;
     },
-    async onStoreDocument({ documentName }: onStoreDocumentPayload<CollabContext>) {
-      console.info(`collab snapshot queued: ${documentName}`);
+    async onLoadDocument({ context, document }: onLoadDocumentPayload<CollabContext>) {
+      const snapshot = await loadDocumentSnapshot(db, context);
+
+      if (snapshot) {
+        Y.applyUpdate(document, snapshot);
+      }
+
+      return document;
+    },
+    async onStoreDocument({ document, documentName, lastContext }: onStoreDocumentPayload<CollabContext>) {
+      if (!lastContext) {
+        console.warn(`collab store skipped, missing context for ${documentName}`);
+        return;
+      }
+
+      try {
+        await storeDocumentSnapshot(db, lastContext, document);
+      } catch (error) {
+        console.error(`collab store failed for ${documentName}`, error);
+      }
     },
   });
 }
