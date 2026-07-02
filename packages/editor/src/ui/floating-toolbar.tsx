@@ -75,7 +75,7 @@ export function FloatingToolbar({
         {...rootProps}
         ref={ref}
         className={cn(
-          'absolute z-50 rounded-lg border border-border/60 bg-popover p-1 opacity-100 shadow-lg print:hidden',
+          'absolute z-50 rounded-md border border-border/60 bg-popover p-1 opacity-100 shadow-lg print:hidden',
           className
         )}
       >

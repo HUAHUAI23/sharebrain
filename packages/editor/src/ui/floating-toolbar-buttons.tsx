@@ -62,7 +62,7 @@ export function FloatingToolbarButtons() {
     <div className="flex w-60 flex-col">
       <TurnIntoRow />
 
-      <Separator className="my-0.5" />
+      <Separator className="my-0.5 bg-border/70" />
 
       <div className="grid grid-cols-5 place-items-center gap-0.5 px-0.5 py-0.5">
         <MarkToolbarButton
@@ -108,14 +108,14 @@ export function FloatingToolbarButtons() {
         <span />
       </div>
 
-      <Separator className="my-0.5" />
+      <Separator className="my-0.5 bg-border/70" />
 
       <div className="flex items-center gap-0.5 px-0.5 py-0.5">
         <CommentToolbarButton />
         <SuggestionToolbarButton />
       </div>
 
-      <Separator className="my-0.5" />
+      <Separator className="my-0.5 bg-border/70" />
 
       <AISkills />
     </div>
@@ -125,6 +125,18 @@ export function FloatingToolbarButtons() {
 function TurnIntoRow() {
   const editor = useEditorRef();
   const [open, setOpen] = React.useState(false);
+  const closeTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+
+  const openNow = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setOpen(true);
+  };
+  const closeSoon = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => setOpen(false), 160);
+  };
 
   const value = useSelectionFragmentProp({
     defaultValue: KEYS.p,
@@ -143,10 +155,12 @@ function TurnIntoRow() {
         <button
           type="button"
           className={cn(
-            'flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none',
+            'flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none',
             'hover:bg-accent aria-expanded:bg-accent',
             "[&_svg:not([class*='size-'])]:size-4 [&_svg]:text-muted-foreground",
           )}
+          onPointerEnter={openNow}
+          onPointerLeave={closeSoon}
         >
           {selectedItem.icon}
           <span className="flex-1 text-left">{selectedItem.label()}</span>
@@ -159,6 +173,8 @@ function TurnIntoRow() {
         side="right"
         align="start"
         sideOffset={6}
+        onPointerEnter={openNow}
+        onPointerLeave={closeSoon}
         onCloseAutoFocus={(e) => {
           e.preventDefault();
           editor.tf.focus();
@@ -256,7 +272,7 @@ function AISkills() {
         <button
           key={skill.key}
           type="button"
-          className="flex w-full cursor-pointer items-center rounded-md px-1.5 py-1 text-left text-sm outline-none hover:bg-accent"
+          className="flex w-full cursor-pointer items-center rounded-sm px-1.5 py-1.5 text-left text-sm outline-none hover:bg-accent"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
             void editor.getApi(AIChatPlugin).aiChat.submit('', {
@@ -272,7 +288,7 @@ function AISkills() {
       <button
         type="button"
         className={cn(
-          'mt-1 flex w-full cursor-pointer items-center gap-2 rounded-md border border-border/70 px-2 py-1.5 text-left text-muted-foreground text-sm outline-none',
+          'mt-1 flex w-full cursor-pointer items-center gap-2 rounded-sm border border-border/70 px-2 py-1.5 text-left text-muted-foreground text-sm outline-none',
           'hover:bg-accent hover:text-foreground',
         )}
         onMouseDown={(e) => e.preventDefault()}
