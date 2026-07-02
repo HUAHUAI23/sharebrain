@@ -12,6 +12,7 @@ packages/
   config/    环境变量 schema 和运行时配置
   contracts/ Zod 合约和跨端类型
   db/        Drizzle schema、client、开发期 push/reset 脚本
+  editor/    Plate 编辑器基座（插件 kits、节点 UI、工具栏、静态渲染）
   i18n/      Paraglide 生成消息入口和 locale 工具
   ui/        shadcn 风格 UI 组件库和样式 token
   typescript-config/ 共享 TS 配置
@@ -42,7 +43,7 @@ src/
 - feature 内部可拆 `components/queries/mutations/hooks`，跨 feature 复用才上移。
 - 服务端状态必须通过 TanStack Query，临时 UI 状态才放 Zustand。
 - 登录/注册界面放 `features/auth`，只调用认证 API，不保存明文 token。
-- Plate 编辑器相关代码统一放 `features/editor`。
+- Plate 编辑器基座（插件 kits、节点 UI、工具栏）统一封装在 `packages/editor`；`features/editor` 只保留业务 shell（文档加载/保存、协作接线）。
 - 首页放 `features/home`，项目模块放 `features/project`，媒体交互放 `features/media`。
 - `features/project` 按渲染原型拆分组件，`project-view.tsx` 只保留项目布局和模块选择，collection/timeline/record 文档列表放独立文件。
 
@@ -97,6 +98,7 @@ src/
 - `i18n` 是前端国际化唯一导入边界；业务组件只从 `@sharebrain/i18n` 导入 `m/getLocale/setLocale`，不直接导入 `src/paraglide` 生成目录。
 - 翻译源只维护 `messages/zh-CN.json` 和 `messages/en-US.json`；`packages/i18n/src/paraglide/` 和 `apps/web/src/paraglide/` 是 Paraglide 自动生成物，禁止手改。
 - `ui` 只放无业务含义的基础组件和设计 token。
+- `editor` 是 Plate 编辑器基座唯一落点：只放无业务含义的插件 kits、节点 UI、工具栏和静态渲染；文案必须走 `@sharebrain/i18n`，基础组件从 `@sharebrain/ui` 引入，不得依赖业务包。
 - `ui` 是 shadcn 组件唯一落点；`packages/ui/components.json` 使用 `#components/#lib/#hooks` 本地别名，新增 shadcn 组件必须从 `packages/ui` 目录执行 CLI。
 - `packages/ui/src/styles/globals.css` 是 Tailwind v4 入口和设计 token 来源；`apps/web/src/styles/app.css` 只保留页面壳、搜索浮层、项目侧栏、业务时间线、业务表单和 Plate 编辑器样式。
 - `packages/ui/src/components/ui-provider.tsx` 统一挂载 TooltipProvider 和 Toaster；Web 根部只组合该 Provider，不在 feature 内重复挂基础 UI provider。

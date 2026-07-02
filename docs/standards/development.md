@@ -94,12 +94,13 @@ Web 默认使用同源 `/api` 请求后端，开发期由 Vite proxy 转发到 `
 - 开发期 auth 使用 `DEV_AUTH_USER_ID`、`DEV_AUTH_TENANT_ID`、`DEV_AUTH_ROLE`，业务 route 不得写死用户。
 - 密码认证使用 `AUTH_PASSWORD_REGISTRATION_ENABLED` 控制是否允许注册，使用 `AUTH_SESSION_COOKIE_NAME` 和 `AUTH_SESSION_EXPIRES_DAYS` 管理 session cookie。
 - `AUTH_DEV_BYPASS_ENABLED` 只用于开发/测试后门，关闭后必须通过登录 session 访问 `/api/*`。
+- AI 生成使用 `AI_MODEL_PROVIDER`、`AI_BASE_URL`、`AI_API_KEY`、`AI_MODEL`、`AI_MAX_OUTPUT_TOKENS`；未配置时 `/api/ai/command` 返回 `AI_NOT_CONFIGURED`，不允许把密钥写入仓库。
 - S3/MinIO 配置统一使用 `S3_*` 和 `MEDIA_*` 环境变量；开发默认值只用于本地 MinIO 占位，真实环境必须覆盖，媒体读取 URL 必须由 API 按权限短时签发。
 
 ## 运行时约定
 
 - API 和 Worker 当前使用 Bun 运行时。
-- Hocuspocus 4 协作服务使用 Node 运行时，原因是其服务端实现使用 Node adapter，并声明 `engines.node >=22`。
+- Hocuspocus 4 协作服务使用 Node 运行时，原因是其服务端实现使用 Node adapter，并声明 `engines.node >=22`；dev 脚本使用 `tsx watch`（Node 原生 type-stripping 不支持 monorepo 无扩展名 TS 导入）。
 - `bun --hot` 会额外启动 Bun 开发服务器并占用默认端口；当前服务端 dev 脚本不使用 `--hot`。
 - Bun API 入口不要 `export default { fetch }` 或 `export default app`，本项目统一使用显式 `Bun.serve({ port })` 避免默认端口冲突。
 
