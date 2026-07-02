@@ -1,0 +1,80 @@
+{
+  "name": "@sharebrain/editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./kits/*": {
+      "types": "./src/kits/*.tsx",
+      "default": "./src/kits/*.tsx"
+    },
+    "./ui/*": {
+      "types": "./src/ui/*.tsx",
+      "default": "./src/ui/*.tsx"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun --eval \"console.log('no editor tests yet')\""
+  },
+  "dependencies": {
+    "@ai-sdk/react": "catalog:",
+    "@ariakit/react": "catalog:",
+    "@platejs/ai": "catalog:",
+    "@platejs/basic-nodes": "catalog:",
+    "@platejs/basic-styles": "catalog:",
+    "@platejs/callout": "catalog:",
+    "@platejs/code-block": "catalog:",
+    "@platejs/combobox": "catalog:",
+    "@platejs/comment": "catalog:",
+    "@platejs/core": "catalog:",
+    "@platejs/dnd": "catalog:",
+    "@platejs/floating": "catalog:",
+    "@platejs/indent": "catalog:",
+    "@platejs/link": "catalog:",
+    "@platejs/list": "catalog:",
+    "@platejs/markdown": "catalog:",
+    "@platejs/resizable": "catalog:",
+    "@platejs/selection": "catalog:",
+    "@platejs/slash-command": "catalog:",
+    "@platejs/suggestion": "catalog:",
+    "@platejs/table": "catalog:",
+    "@platejs/toc": "catalog:",
+    "@platejs/toggle": "catalog:",
+    "@platejs/yjs": "catalog:",
+    "@radix-ui/react-dropdown-menu": "catalog:",
+    "@radix-ui/react-popover": "catalog:",
+    "@radix-ui/react-toolbar": "catalog:",
+    "@radix-ui/react-tooltip": "catalog:",
+    "@sharebrain/i18n": "workspace:*",
+    "@sharebrain/ui": "workspace:*",
+    "@slate-yjs/react": "catalog:",
+    "@udecode/cn": "catalog:",
+    "ai": "catalog:",
+    "class-variance-authority": "catalog:",
+    "cmdk": "catalog:",
+    "date-fns": "catalog:",
+    "lowlight": "catalog:",
+    "lucide-react": "catalog:",
+    "platejs": "catalog:",
+    "react": "catalog:",
+    "react-dnd": "catalog:",
+    "react-dnd-html5-backend": "catalog:",
+    "react-dom": "catalog:",
+    "remark-gfm": "catalog:",
+    "sonner": "catalog:",
+    "use-file-picker": "catalog:",
+    "yjs": "catalog:"
+  },
+  "devDependencies": {
+    "@sharebrain/typescript-config": "workspace:*",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "typescript": "catalog:"
+  }
+}

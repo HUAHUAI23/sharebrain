@@ -4,6 +4,7 @@
 @source "../components";
 @source "../hooks";
 @source "../../../../apps/web/src";
+@source "../../../editor/src";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -44,6 +45,8 @@
   --surface: #ffffff;
   --hover: #f1f1ef;
   --border-subtle: #f1f1ef;
+  --brand: var(--primary);
+  --highlight: #fef3c7;
   color-scheme: light;
 }
 
@@ -83,6 +86,8 @@
   --surface: #202020;
   --hover: #2f2f2f;
   --border-subtle: #333333;
+  --brand: var(--primary);
+  --highlight: #3a3222;
 }
 
 @theme inline {
@@ -106,6 +111,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-highlight: var(--highlight);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
