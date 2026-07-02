@@ -16,12 +16,11 @@
     "test": "bun --eval \"console.log('no web tests yet')\""
   },
   "dependencies": {
-    "@platejs/ai": "catalog:",
-    "@platejs/basic-nodes": "catalog:",
     "@platejs/core": "catalog:",
     "@platejs/markdown": "catalog:",
     "@platejs/yjs": "catalog:",
     "@sharebrain/config": "workspace:*",
+    "@sharebrain/editor": "workspace:*",
     "@sharebrain/contracts": "workspace:*",
     "@sharebrain/i18n": "workspace:*",
     "@sharebrain/ui": "workspace:*",

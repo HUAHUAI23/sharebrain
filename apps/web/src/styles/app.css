@@ -379,21 +379,14 @@
   font-size: 38px;
   font-weight: 700;
   line-height: 1.15;
-  padding: 0;
+  /* 与编辑器内容区左侧留白对齐（拖拽手柄 gutter 占用 64px） */
+  padding: 0 64px;
 }
 
-.plate-content {
-  min-height: 58vh;
-  border: 0;
-  outline: none;
-  color: var(--foreground);
-  font: inherit;
-  font-size: 16px;
-  line-height: 1.75;
-}
-
-.plate-content [data-slate-placeholder="true"] {
-  color: var(--muted-foreground);
+@media (max-width: 640px) {
+  .title-input {
+    padding: 0 24px;
+  }
 }
 
 @media (max-width: 860px) {
