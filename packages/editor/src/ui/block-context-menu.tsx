@@ -3,7 +3,6 @@
 import * as React from 'react';
 
 import { AIChatPlugin } from '@platejs/ai/react';
-import { MarkdownPlugin } from '@platejs/markdown';
 import {
   BLOCK_CONTEXT_MENU_ID,
   BlockMenuPlugin,
@@ -30,7 +29,7 @@ import {
 import { setBlockType } from '../transforms';
 import { useIsTouchDevice } from '../hooks/use-is-touch-device';
 
-type Value = 'askAI' | null;
+type Value = 'askAI' | 'copy' | null;
 
 export function BlockContextMenu({ children }: { children: React.ReactNode }) {
   const { api, editor } = useEditorPlugin(BlockMenuPlugin);
@@ -106,6 +105,13 @@ export function BlockContextMenu({ children }: { children: React.ReactNode }) {
               editor.getApi(AIChatPlugin).aiChat.show();
             }
 
+            if (value === 'copy') {
+              // 菜单关闭、焦点回到块选择输入后再触发原生复制，
+              // 走与 ⌘C 相同的 clipboardData 链路（保留块结构，
+              // 且不受 navigator.clipboard 的焦点/安全上下文限制）。
+              document.execCommand('copy');
+            }
+
             setValue(null);
           }}
         >
@@ -119,14 +125,7 @@ export function BlockContextMenu({ children }: { children: React.ReactNode }) {
             </ContextMenuItem>
             <ContextMenuItem
               onClick={() => {
-                const nodes = editor
-                  .getApi(BlockSelectionPlugin)
-                  .blockSelection.getNodes({ selectionFallback: true, sort: true });
-                const markdown = editor
-                  .getApi(MarkdownPlugin)
-                  .markdown.serialize({ value: nodes.map(([node]) => node) });
-
-                void navigator.clipboard.writeText(markdown);
+                setValue('copy');
               }}
             >
               {m.editor_menu_copy()}
