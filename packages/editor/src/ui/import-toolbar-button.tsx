@@ -2,6 +2,7 @@ import * as React from 'react';
 
 import type { DropdownMenuProps } from '@radix-ui/react-dropdown-menu';
 
+import { importDocx } from '@platejs/docx-io';
 import { MarkdownPlugin } from '@platejs/markdown';
 import { ArrowUpToLineIcon } from 'lucide-react';
 import { m } from '@sharebrain/i18n';
@@ -70,6 +71,21 @@ export function ImportToolbarButton(props: DropdownMenuProps) {
     },
   });
 
+  const { openFilePicker: openDocxFilePicker } = useFilePicker({
+    accept: ['.docx'],
+    multiple: false,
+    onFilesSelected: async ({ plainFiles }: { plainFiles?: File[] }) => {
+      const file = plainFiles?.[0];
+
+      if (!file) return;
+
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await importDocx(editor, arrayBuffer);
+
+      editor.tf.insertNodes(result.nodes);
+    },
+  });
+
   return (
     <DropdownMenu open={open} onOpenChange={setOpen} modal={false} {...props}>
       <DropdownMenuTrigger asChild>
@@ -94,6 +110,14 @@ export function ImportToolbarButton(props: DropdownMenuProps) {
             }}
           >
             {m.editor_import_markdown()}
+          </DropdownMenuItem>
+
+          <DropdownMenuItem
+            onSelect={() => {
+              openDocxFilePicker();
+            }}
+          >
+            {m.editor_import_word()}
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>

@@ -3,19 +3,25 @@ import * as React from 'react';
 import type { DropdownMenuProps } from '@radix-ui/react-dropdown-menu';
 
 import {
+  AudioLinesIcon,
   ChevronRightIcon,
   FileCodeIcon,
+  FileUpIcon,
+  FilmIcon,
   Heading1Icon,
   Heading2Icon,
   Heading3Icon,
+  ImageIcon,
   LightbulbIcon,
   Link2Icon,
+  LinkIcon,
   ListIcon,
   ListOrderedIcon,
   MinusIcon,
   PilcrowIcon,
   PlusIcon,
   QuoteIcon,
+  RadicalIcon,
   SquareIcon,
   TableIcon,
   TableOfContentsIcon,
@@ -134,12 +140,52 @@ const groups: Group[] = [
     })),
   },
   {
+    group: () => m.editor_group_media(),
+    items: [
+      {
+        icon: <ImageIcon />,
+        label: () => m.editor_media_image(),
+        value: KEYS.img,
+      },
+      {
+        icon: <LinkIcon />,
+        label: () => m.editor_media_embed(),
+        value: KEYS.mediaEmbed,
+      },
+      {
+        icon: <FilmIcon />,
+        label: () => m.editor_media_video(),
+        value: KEYS.video,
+      },
+      {
+        icon: <AudioLinesIcon />,
+        label: () => m.editor_media_audio(),
+        value: KEYS.audio,
+      },
+      {
+        icon: <FileUpIcon />,
+        label: () => m.editor_media_file(),
+        value: KEYS.file,
+      },
+    ].map((item) => ({
+      ...item,
+      onSelect: (editor: PlateEditor, value: string) => {
+        insertBlock(editor, value);
+      },
+    })),
+  },
+  {
     group: () => m.editor_group_advanced(),
     items: [
       {
         icon: <TableOfContentsIcon />,
         label: () => m.editor_block_toc(),
         value: KEYS.toc,
+      },
+      {
+        icon: <RadicalIcon />,
+        label: () => m.editor_equation(),
+        value: KEYS.equation,
       },
     ].map((item) => ({
       ...item,
@@ -155,6 +201,12 @@ const groups: Group[] = [
         icon: <Link2Icon />,
         label: () => m.editor_block_link(),
         value: KEYS.link,
+      },
+      {
+        focusEditor: false,
+        icon: <RadicalIcon />,
+        label: () => m.editor_equation_inline(),
+        value: KEYS.inlineEquation,
       },
     ].map((item) => ({
       ...item,

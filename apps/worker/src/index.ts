@@ -1,3 +1,5 @@
+import "@sharebrain/config/dotenv";
+
 import { loadServerEnv } from "@sharebrain/config";
 import { authContextSchema, workerHealthResponseSchema } from "@sharebrain/contracts";
 import { createDatabaseClient } from "@sharebrain/db";

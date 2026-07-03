@@ -6,6 +6,7 @@ import {
   EditorContainer,
   EditorKit,
   EditorMoreMenu,
+  EditorUploadProvider,
   RemoteCursorOverlay,
 } from "@sharebrain/editor";
 import { m } from "@sharebrain/i18n";
@@ -20,6 +21,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { apiRequest, queryKeys } from "../../lib/api-client";
 import { runtimeEnv } from "../../lib/runtime-env";
+import { uploadEditorFile } from "./editor-upload";
 import type { DocumentResponse, MeResponse, WorkspaceView } from "../workspace/workspace-types";
 
 const emptyPlateValue: Value = [{ type: "p", children: [{ text: "" }] }];
@@ -245,7 +247,13 @@ function DocumentEditor({
 
   return (
     <main className="editor-page">
-      <Plate editor={editor}>
+      <EditorUploadProvider
+        uploadFile={uploadEditorFile}
+        onError={(error) => {
+          console.error("editor media upload failed", error);
+        }}
+      >
+        <Plate editor={editor}>
         <NotionToolbar className="grid grid-cols-[auto_auto_1fr_auto]">
           <Button
             variant="ghost"
@@ -281,7 +289,8 @@ function DocumentEditor({
             />
           </EditorContainer>
         </article>
-      </Plate>
+        </Plate>
+      </EditorUploadProvider>
     </main>
   );
 }

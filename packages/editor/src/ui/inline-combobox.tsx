@@ -69,6 +69,12 @@ type InlineComboboxProps = {
   children: React.ReactNode;
   element: TElement;
   trigger: string;
+  /**
+   * Auto-cancel and restore the typed text as plain text once the search
+   * value matches (e.g. a space for emoji shortcodes, which never contain
+   * spaces). Without this the combobox only exits on Escape/blur.
+   */
+  cancelOnValue?: (value: string) => boolean;
   filter?: FilterFn | false;
   hideWhenNoValue?: boolean;
   showTrigger?: boolean;
@@ -77,6 +83,7 @@ type InlineComboboxProps = {
 };
 
 const InlineCombobox = ({
+  cancelOnValue,
   children,
   element,
   filter = defaultFilter,
@@ -166,6 +173,21 @@ const InlineCombobox = ({
       }
     },
   });
+
+  const cancelledRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (cancelledRef.current || !cancelOnValue?.(value)) return;
+
+    cancelledRef.current = true;
+
+    const insertAt = insertPointRef.current?.current;
+
+    removeInput(true);
+    editor.tf.insertText(trigger + value, {
+      ...(insertAt ? { at: insertAt } : {}),
+    });
+  }, [cancelOnValue, editor, removeInput, trigger, value]);
 
   const [hasEmpty, setHasEmpty] = React.useState(false);
 

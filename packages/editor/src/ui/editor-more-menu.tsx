@@ -3,9 +3,8 @@ import * as React from 'react';
 import { MarkdownPlugin } from '@platejs/markdown';
 import { ArrowDownToLineIcon, ArrowUpToLineIcon, EyeIcon, MoreHorizontalIcon, PenIcon } from 'lucide-react';
 import { m } from '@sharebrain/i18n';
-import { createSlateEditor } from 'platejs';
 import { useEditorReadOnly, useEditorRef } from 'platejs/react';
-import { getEditorDOMFromHtmlString, serializeHtml } from 'platejs/static';
+import { getEditorDOMFromHtmlString } from 'platejs/static';
 import { useFilePicker } from 'use-file-picker';
 
 import { Button } from '@sharebrain/ui/components/button';
@@ -18,24 +17,14 @@ import {
   DropdownMenuTrigger,
 } from '@sharebrain/ui/components/dropdown-menu';
 
-import { BaseEditorKit } from '../editor-base-kit';
-import { EditorStatic } from './editor-static';
-
-async function downloadFile(url: string, filename: string) {
-  const response = await fetch(url);
-
-  const blob = await response.blob();
-  const blobUrl = window.URL.createObjectURL(blob);
-
-  const link = document.createElement('a');
-  link.href = blobUrl;
-  link.download = filename;
-  document.body.append(link);
-  link.click();
-  link.remove();
-
-  window.URL.revokeObjectURL(blobUrl);
-}
+import {
+  downloadFile,
+  exportEditorToHtml,
+  exportEditorToMarkdown,
+  exportEditorToPdfDataUri,
+  exportEditorToWordBlob,
+  importEditorDocxFile,
+} from '../lib/exports';
 
 /**
  * Compact page-level menu for editors without a fixed toolbar: import,
@@ -77,38 +66,43 @@ export function EditorMoreMenu({ fileName = 'document' }: { fileName?: string })
     },
   });
 
+  const { openFilePicker: openDocxFilePicker } = useFilePicker({
+    accept: ['.docx'],
+    multiple: false,
+    onFilesSelected: async ({ plainFiles }: { plainFiles?: File[] }) => {
+      const file = plainFiles?.[0];
+
+      if (!file) return;
+
+      await importEditorDocxFile(editor, file);
+    },
+  });
+
   const exportToMarkdown = async () => {
-    const md = editor.getApi(MarkdownPlugin).markdown.serialize();
+    const md = exportEditorToMarkdown(editor);
     const url = `data:text/markdown;charset=utf-8,${encodeURIComponent(md)}`;
     await downloadFile(url, `${fileName}.md`);
   };
 
   const exportToHtml = async () => {
-    const editorStatic = createSlateEditor({
-      plugins: BaseEditorKit,
-      value: editor.children,
-    });
-
-    const editorHtml = await serializeHtml(editorStatic, {
-      editorComponent: EditorStatic,
-      props: { style: { padding: '0 calc(50% - 350px)', paddingBottom: '' } },
-    });
-
-    const html = `<!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <meta name="color-scheme" content="light dark" />
-      </head>
-      <body>
-        ${editorHtml}
-      </body>
-    </html>`;
-
+    const html = await exportEditorToHtml(editor);
     const url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
-
     await downloadFile(url, `${fileName}.html`);
+  };
+
+  const exportToWord = async () => {
+    const blob = await exportEditorToWordBlob(editor);
+    const url = window.URL.createObjectURL(blob);
+
+    await downloadFile(url, `${fileName}.docx`);
+
+    window.URL.revokeObjectURL(url);
+  };
+
+  const exportToPdf = async () => {
+    const dataUri = await exportEditorToPdfDataUri(editor);
+
+    await downloadFile(dataUri, `${fileName}.pdf`);
   };
 
   return (
@@ -146,6 +140,10 @@ export function EditorMoreMenu({ fileName = 'document' }: { fileName?: string })
             <ArrowUpToLineIcon />
             {m.editor_import_html()}
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => openDocxFilePicker()}>
+            <ArrowUpToLineIcon />
+            {m.editor_import_word()}
+          </DropdownMenuItem>
         </DropdownMenuGroup>
 
         <DropdownMenuSeparator />
@@ -158,6 +156,14 @@ export function EditorMoreMenu({ fileName = 'document' }: { fileName?: string })
           <DropdownMenuItem onSelect={exportToHtml}>
             <ArrowDownToLineIcon />
             {m.editor_export_html()}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={exportToWord}>
+            <ArrowDownToLineIcon />
+            {m.editor_export_word()}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={exportToPdf}>
+            <ArrowDownToLineIcon />
+            {m.editor_export_pdf()}
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>

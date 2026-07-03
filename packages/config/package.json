@@ -7,6 +7,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./dotenv": {
+      "types": "./src/dotenv.ts",
+      "default": "./src/dotenv.ts"
     }
   },
   "scripts": {

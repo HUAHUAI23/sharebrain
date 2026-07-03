@@ -99,6 +99,7 @@ src/
 - 翻译源只维护 `messages/zh-CN.json` 和 `messages/en-US.json`；`packages/i18n/src/paraglide/` 和 `apps/web/src/paraglide/` 是 Paraglide 自动生成物，禁止手改。
 - `ui` 只放无业务含义的基础组件和设计 token。
 - `editor` 是 Plate 编辑器基座唯一落点：只放无业务含义的插件 kits、节点 UI、工具栏和静态渲染；文案必须走 `@sharebrain/i18n`，基础组件从 `@sharebrain/ui` 引入，不得依赖业务包。
+- `editor` 内需要业务数据的能力通过 Provider 注入而非写死：媒体上传走 `EditorUploadProvider`（宿主注入 `EditorUploadHandler`，缺省回退本地 object URL），mention 候选走 `EditorMentionProvider`；Web 侧的实现在 `apps/web/src/features/editor/editor-upload.ts`（走 `/api/media` 预签名直传，文档内落 `/api/media/:id/raw` 稳定地址）。
 - `ui` 是 shadcn 组件唯一落点；`packages/ui/components.json` 使用 `#components/#lib/#hooks` 本地别名，新增 shadcn 组件必须从 `packages/ui` 目录执行 CLI。
 - `packages/ui/src/styles/globals.css` 是 Tailwind v4 入口和设计 token 来源；`apps/web/src/styles/app.css` 只保留页面壳、搜索浮层、项目侧栏、业务时间线、业务表单和 Plate 编辑器样式。
 - `packages/ui/src/components/ui-provider.tsx` 统一挂载 TooltipProvider 和 Toaster；Web 根部只组合该 Provider，不在 feature 内重复挂基础 UI provider。

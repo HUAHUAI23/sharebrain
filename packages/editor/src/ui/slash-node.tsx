@@ -4,16 +4,22 @@ import type { PlateEditor, PlateElementProps } from 'platejs/react';
 
 import { AIChatPlugin } from '@platejs/ai/react';
 import {
+  AudioLinesIcon,
   ChevronRightIcon,
   Code2,
+  FileUpIcon,
+  FilmIcon,
   Heading1Icon,
   Heading2Icon,
   Heading3Icon,
+  ImageIcon,
   LightbulbIcon,
   ListIcon,
   ListOrdered,
   PilcrowIcon,
   Quote,
+  RadicalIcon,
+  SmileIcon,
   SparklesIcon,
   Square,
   Table,
@@ -23,7 +29,7 @@ import { m } from '@sharebrain/i18n';
 import { type TComboboxInputElement, KEYS } from 'platejs';
 import { PlateElement } from 'platejs/react';
 
-import { insertBlock } from '../transforms';
+import { insertBlock, insertInlineElement } from '../transforms';
 
 import {
   InlineCombobox,
@@ -145,6 +151,40 @@ const groups: Group[] = [
     })),
   },
   {
+    group: () => m.editor_group_media(),
+    items: [
+      {
+        icon: <ImageIcon />,
+        keywords: ['image', 'img', 'photo', 'picture'],
+        label: () => m.editor_media_image(),
+        value: KEYS.img,
+      },
+      {
+        icon: <FilmIcon />,
+        keywords: ['video', 'movie'],
+        label: () => m.editor_media_video(),
+        value: KEYS.video,
+      },
+      {
+        icon: <AudioLinesIcon />,
+        keywords: ['audio', 'music', 'sound'],
+        label: () => m.editor_media_audio(),
+        value: KEYS.audio,
+      },
+      {
+        icon: <FileUpIcon />,
+        keywords: ['file', 'attachment', 'upload'],
+        label: () => m.editor_media_file(),
+        value: KEYS.file,
+      },
+    ].map((item) => ({
+      ...item,
+      onSelect: (editor: PlateEditor, value: string) => {
+        insertBlock(editor, value, { upsert: true });
+      },
+    })),
+  },
+  {
     group: () => m.editor_group_advanced(),
     items: [
       {
@@ -153,10 +193,40 @@ const groups: Group[] = [
         label: () => m.editor_block_toc(),
         value: KEYS.toc,
       },
+      {
+        icon: <RadicalIcon />,
+        keywords: ['math', 'tex', 'katex', 'formula'],
+        label: () => m.editor_equation(),
+        value: KEYS.equation,
+      },
     ].map((item) => ({
       ...item,
       onSelect: (editor: PlateEditor, value: string) => {
         insertBlock(editor, value, { upsert: true });
+      },
+    })),
+  },
+  {
+    group: () => m.editor_group_inline(),
+    items: [
+      {
+        focusEditor: false,
+        icon: <RadicalIcon />,
+        keywords: ['math', 'tex', 'katex', 'formula', 'inline'],
+        label: () => m.editor_equation_inline(),
+        value: KEYS.inlineEquation,
+      },
+      {
+        focusEditor: false,
+        icon: <SmileIcon />,
+        keywords: ['emoji', 'emotion', 'face', 'biaoqing'],
+        label: () => m.editor_toolbar_emoji(),
+        value: KEYS.emojiInput,
+      },
+    ].map((item) => ({
+      ...item,
+      onSelect: (editor: PlateEditor, value: string) => {
+        insertInlineElement(editor, value);
       },
     })),
   },

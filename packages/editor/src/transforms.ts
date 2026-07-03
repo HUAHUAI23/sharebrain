@@ -3,6 +3,13 @@ import type { PlateEditor } from 'platejs/react';
 import { insertCallout } from '@platejs/callout';
 import { insertCodeBlock, toggleCodeBlock } from '@platejs/code-block';
 import { triggerFloatingLink } from '@platejs/link/react';
+import { insertEquation, insertInlineEquation } from '@platejs/math';
+import {
+  insertAudioPlaceholder,
+  insertFilePlaceholder,
+  insertMedia,
+  insertVideoPlaceholder,
+} from '@platejs/media';
 import { TablePlugin } from '@platejs/table/react';
 import { insertToc } from '@platejs/toc';
 import {
@@ -12,6 +19,8 @@ import {
   KEYS,
   PathApi,
 } from 'platejs';
+
+import { EmojiCaretPickerPlugin } from './ui/emoji-caret-picker';
 
 const insertList = (editor: PlateEditor, type: string) => {
   editor.tf.insertNodes(
@@ -43,17 +52,40 @@ const insertBlockMap: Record<
   [KEYS.listTodo]: insertList,
   [KEYS.ol]: insertList,
   [KEYS.ul]: insertList,
+  [KEYS.audio]: (editor) => insertAudioPlaceholder(editor, { select: true }),
   [KEYS.callout]: (editor) => insertCallout(editor, { select: true }),
   [KEYS.codeBlock]: (editor) => insertCodeBlock(editor, { select: true }),
+  [KEYS.equation]: (editor) => insertEquation(editor, { select: true }),
+  [KEYS.file]: (editor) => insertFilePlaceholder(editor, { select: true }),
+  [KEYS.img]: (editor) =>
+    insertMedia(editor, {
+      select: true,
+      type: KEYS.img,
+    }),
+  [KEYS.mediaEmbed]: (editor) =>
+    insertMedia(editor, {
+      select: true,
+      type: KEYS.mediaEmbed,
+    }),
   [KEYS.table]: (editor) =>
     editor.getTransforms(TablePlugin).insert.table({}, { select: true }),
   [KEYS.toc]: (editor) => insertToc(editor, { select: true }),
+  [KEYS.video]: (editor) => insertVideoPlaceholder(editor, { select: true }),
 };
 
 const insertInlineMap: Record<
   string,
   (editor: PlateEditor, type: string) => void
 > = {
+  // 在光标位置弹出表情卡片。等一个宏任务让 slash 菜单先卸载，
+  // 光标位置回稳后再取 rect，弹层位置才准确。
+  [KEYS.emojiInput]: (editor) => {
+    setTimeout(() => {
+      editor.setOption(EmojiCaretPickerPlugin, 'open', true);
+    }, 0);
+  },
+  [KEYS.inlineEquation]: (editor) =>
+    insertInlineEquation(editor, '', { select: true }),
   [KEYS.link]: (editor) => triggerFloatingLink(editor, { focused: true }),
 };
 

@@ -27,6 +27,14 @@ export function createMediaRoutes() {
     return context.json(await service.createReadUrl(context.var.auth, context.req.param("mediaId")));
   });
 
+  // 文档内嵌媒体的稳定地址：预签名读取 URL 会过期，编辑器把该地址写入文档，
+  // 每次访问时重定向到新签发的读取 URL。
+  app.get("/api/media/:mediaId/raw", async (context) => {
+    const service = new MediaService(context.var.db, context.var.env);
+    const { url } = await service.createReadUrl(context.var.auth, context.req.param("mediaId"));
+    return context.redirect(url, 302);
+  });
+
   app.patch("/api/me/avatar", async (context) => {
     const service = new MediaService(context.var.db, context.var.env);
     const payload = parseJson(avatarRequestSchema, await context.req.json());

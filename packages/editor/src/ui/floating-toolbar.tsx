@@ -33,11 +33,16 @@ export function FloatingToolbar({
   const focusedEditorId = useEventEditorValue('focus');
   const isFloatingLinkOpen = !!usePluginOption({ key: KEYS.link }, 'mode');
   const isAIChatOpen = usePluginOption({ key: KEYS.aiChat }, 'open');
+  // 右键菜单 / drag handle 菜单 / 光标菜单打开时收起选区面板，避免双菜单同屏。
+  const isBlockMenuOpen = !!usePluginOption(
+    { key: KEYS.blockMenu } as { key: 'blockMenu' },
+    'openId'
+  );
 
   const floatingToolbarState = useFloatingToolbarState({
     editorId,
     focusedEditorId,
-    hideToolbar: isFloatingLinkOpen || isAIChatOpen,
+    hideToolbar: isFloatingLinkOpen || isAIChatOpen || isBlockMenuOpen,
     ...state,
     floatingOptions: {
       middleware: [

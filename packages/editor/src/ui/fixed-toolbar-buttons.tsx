@@ -17,6 +17,7 @@ import { useEditorReadOnly } from 'platejs/react';
 
 import { AIToolbarButton } from './ai-toolbar-button';
 import { AlignToolbarButton } from './align-toolbar-button';
+import { EmojiToolbarButton } from './emoji-toolbar-button';
 import { ExportToolbarButton } from './export-toolbar-button';
 import { FontColorToolbarButton } from './font-color-toolbar-button';
 import { FontSizeToolbarButton } from './font-size-toolbar-button';
@@ -35,6 +36,7 @@ import {
   TodoListToolbarButton,
 } from './list-toolbar-button';
 import { MarkToolbarButton } from './mark-toolbar-button';
+import { MediaToolbarButton } from './media-toolbar-button';
 import { ModeToolbarButton } from './mode-toolbar-button';
 import { MoreToolbarButton } from './more-toolbar-button';
 import { TableToolbarButton } from './table-toolbar-button';
@@ -137,6 +139,14 @@ export function FixedToolbarButtons() {
           <ToolbarGroup>
             <LinkToolbarButton />
             <TableToolbarButton />
+            <EmojiToolbarButton />
+          </ToolbarGroup>
+
+          <ToolbarGroup>
+            <MediaToolbarButton nodeType={KEYS.img} />
+            <MediaToolbarButton nodeType={KEYS.video} />
+            <MediaToolbarButton nodeType={KEYS.audio} />
+            <MediaToolbarButton nodeType={KEYS.file} />
           </ToolbarGroup>
 
           <ToolbarGroup>

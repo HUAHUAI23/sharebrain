@@ -1,3 +1,5 @@
+import "@sharebrain/config/dotenv";
+
 import {
   Server,
   type onAuthenticatePayload,

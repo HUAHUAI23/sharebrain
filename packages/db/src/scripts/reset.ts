@@ -1,3 +1,5 @@
+import "@sharebrain/config/dotenv";
+
 import { loadServerEnv } from "@sharebrain/config";
 import postgres from "postgres";
 

@@ -36,6 +36,7 @@ import { cn } from '@sharebrain/ui/lib/utils';
 
 import { getBlockType, setBlockType } from '../transforms';
 import { CommentToolbarButton } from './comment-toolbar-button';
+import { InlineEquationToolbarButton } from './equation-toolbar-button';
 import { LinkToolbarButton } from './link-toolbar-button';
 import { MarkToolbarButton } from './mark-toolbar-button';
 import { MoreToolbarButton } from './more-toolbar-button';
@@ -104,8 +105,8 @@ export function FloatingToolbarButtons() {
         >
           <HighlighterIcon />
         </MarkToolbarButton>
+        <InlineEquationToolbarButton />
         <MoreToolbarButton />
-        <span />
       </div>
 
       <Separator className="my-0.5 bg-border/70" />

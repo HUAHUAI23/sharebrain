@@ -4,7 +4,7 @@ import * as React from 'react';
 
 import { DndPlugin, useDraggable, useDropLine } from '@platejs/dnd';
 import { expandListItemsWithChildren } from '@platejs/list';
-import { BlockSelectionPlugin } from '@platejs/selection/react';
+import { BlockMenuPlugin, BlockSelectionPlugin } from '@platejs/selection/react';
 import { GripVertical, Plus } from 'lucide-react';
 import { m } from '@sharebrain/i18n';
 import { type TElement, getPluginByType, isType, KEYS, PathApi } from 'platejs';
@@ -26,6 +26,8 @@ import {
   TooltipTrigger,
 } from '@sharebrain/ui/components/tooltip';
 import { cn } from '@sharebrain/ui/lib/utils';
+
+import { CARET_CONTEXT_MENU_ID } from './block-context-menu';
 
 const UNDRAGGABLE_KEYS = [KEYS.column, KEYS.tr, KEYS.td];
 
@@ -181,6 +183,50 @@ function Draggable(props: PlateElementProps) {
       <div
         ref={nodeRef}
         className="slate-blockWrapper flow-root"
+        onContextMenuCapture={(event) => {
+          // 光标（无选中内容）在本块内且未块选时，plate 会在元素层
+          // stopPropagation 放行浏览器原生菜单；必须在捕获阶段抢先拦截，
+          // 改为唤起光标迷你菜单（粘贴）。判定条件与 plate 的
+          // addOnContextMenu 保持一致。
+          if (editor.dom.readOnly) return;
+          if (!editor.selection || editor.api.isExpanded()) return;
+          if (
+            editor.getOption(
+              BlockSelectionPlugin,
+              'isSelected',
+              element.id as string,
+            )
+          ) {
+            return;
+          }
+
+          const nodeEntry = editor.api.above();
+          const elementPath = editor.api.findPath(element);
+
+          if (
+            !nodeEntry ||
+            !elementPath ||
+            !PathApi.isCommon(elementPath, nodeEntry[1]) ||
+            editor.api.isVoid(nodeEntry[0] as TElement)
+          ) {
+            return;
+          }
+
+          const target = event.target as HTMLElement;
+
+          if (target.dataset?.plateOpenContextMenu === 'true') return;
+
+          event.preventDefault();
+          event.stopPropagation();
+
+          const position = { x: event.clientX, y: event.clientY };
+
+          setTimeout(() => {
+            editor
+              .getApi(BlockMenuPlugin)
+              .blockMenu.show(CARET_CONTEXT_MENU_ID, position);
+          }, 0);
+        }}
         onContextMenu={(event) =>
           editor
             .getApi(BlockSelectionPlugin)
@@ -255,8 +301,32 @@ const DragHandle = React.memo(function DragHandle({
 
             const blockSelectionApi =
               editor.getApi(BlockSelectionPlugin).blockSelection;
+            const elementId = element.id as string;
+            const isBlockSelected = editor.getOption(
+              BlockSelectionPlugin,
+              'isSelected',
+              elementId,
+            );
 
-            blockSelectionApi.set(element.id as string);
+            if (!isBlockSelected) {
+              // 文本选区跨多个块且覆盖当前块时，把整个选区转成块选择，
+              // 让菜单作用于所有选中内容而不是单独这一行。
+              const selectedBlocks = editor.api.isExpanded()
+                ? editor.api.blocks()
+                : [];
+              const coversCurrent = selectedBlocks.some(
+                ([node]) => node.id === elementId,
+              );
+
+              if (coversCurrent && selectedBlocks.length > 1) {
+                blockSelectionApi.set(
+                  selectedBlocks.map(([node]) => node.id as string),
+                );
+              } else {
+                blockSelectionApi.set(elementId);
+              }
+            }
+
             blockSelectionApi.focus();
 
             // Reuse the right-click block menu by dispatching a native
