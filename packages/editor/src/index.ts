@@ -17,6 +17,7 @@ export {
   type EditorUploadProgress,
   type UploadedEditorFile,
 } from './lib/uploads';
+export { CommentsPopoverButton } from './ui/comments-popover';
 export { Editor, EditorContainer, EditorView } from './ui/editor';
 export { EditorMoreMenu } from './ui/editor-more-menu';
 export {

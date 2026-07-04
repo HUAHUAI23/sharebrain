@@ -38,11 +38,17 @@ export function FloatingToolbar({
     { key: KEYS.blockMenu } as { key: 'blockMenu' },
     'openId'
   );
+  // 评论草稿/评论卡片激活时同样收起，让位给评论输入框。
+  const isCommentActive = !!usePluginOption(
+    { key: KEYS.comment } as { key: 'comment' },
+    'activeId'
+  );
 
   const floatingToolbarState = useFloatingToolbarState({
     editorId,
     focusedEditorId,
-    hideToolbar: isFloatingLinkOpen || isAIChatOpen || isBlockMenuOpen,
+    hideToolbar:
+      isFloatingLinkOpen || isAIChatOpen || isBlockMenuOpen || isCommentActive,
     ...state,
     floatingOptions: {
       middleware: [

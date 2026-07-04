@@ -1,6 +1,7 @@
 import { MarkdownPlugin } from "@platejs/markdown";
 import { YjsPlugin } from "@platejs/yjs/react";
 import {
+  CommentsPopoverButton,
   discussionPlugin,
   Editor,
   EditorContainer,
@@ -272,7 +273,10 @@ function DocumentEditor({
           </Button>
           <FileText size={16} />
           <span>{title || m.common_untitled()}</span>
-          <EditorMoreMenu fileName={title || "document"} />
+          <span className="flex items-center justify-end gap-1">
+            <CommentsPopoverButton />
+            <EditorMoreMenu fileName={title || "document"} />
+          </span>
         </NotionToolbar>
         <article className="markdown-editor">
           <Input

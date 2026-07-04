@@ -6,7 +6,6 @@ import type { PlateElementProps, RenderNodeWrapper } from 'platejs/react';
 
 import { getDraftCommentKey } from '@platejs/comment';
 import { CommentPlugin } from '@platejs/comment/react';
-import { getTransientSuggestionKey } from '@platejs/suggestion';
 import { SuggestionPlugin } from '@platejs/suggestion/react';
 import {
   MessageSquareTextIcon,
@@ -42,14 +41,6 @@ const BlockCommentContent = ({ children, element }: PlateElementProps) => {
   const draftCommentNode = isTopLevelBlock
     ? commentsApi.node({ at: blockPath, isDraft: true })
     : undefined;
-  const commentNodes = isTopLevelBlock
-    ? [...commentsApi.nodes({ at: blockPath })]
-    : [];
-  const suggestionNodes = isTopLevelBlock
-    ? [
-        ...editor.getApi(SuggestionPlugin).suggestion.nodes({ at: blockPath }),
-      ].filter(([node]) => !node[getTransientSuggestionKey()])
-    : [];
   const { resolvedDiscussions, resolvedSuggestions } =
     useBlockDiscussionItems(blockPath);
 
@@ -91,11 +82,25 @@ const BlockCommentContent = ({ children, element }: PlateElementProps) => {
     selected ||
     (isCommenting && !!draftCommentNode && commentingCurrent);
 
-  const anchorElement = React.useMemo(() => {
+  // 锚点必须在 DOM 提交后解析：评论草稿刚设置时 render 阶段还查不到
+  // 对应 leaf 的 DOM，同步计算会得到空锚点，弹层会掉到视口左上角。
+  const [anchorElement, setAnchorElement] = React.useState<HTMLElement | null>(
+    null
+  );
+
+  React.useLayoutEffect(() => {
+    if (!open) {
+      setAnchorElement(null);
+      return;
+    }
+
+    const at = editor.api.findPath(element) ?? [];
     let activeNode: NodeEntry | undefined;
 
     if (activeSuggestion) {
-      activeNode = suggestionNodes.find(
+      activeNode = [
+        ...editor.getApi(SuggestionPlugin).suggestion.nodes({ at }),
+      ].find(
         ([node]) =>
           editor.getApi(SuggestionPlugin).suggestion.nodeId(node) ===
           activeSuggestion.suggestionId
@@ -104,9 +109,13 @@ const BlockCommentContent = ({ children, element }: PlateElementProps) => {
 
     if (activeCommentId) {
       if (activeCommentId === getDraftCommentKey()) {
-        activeNode = draftCommentNode;
+        activeNode = editor
+          .getApi(CommentPlugin)
+          .comment.node({ at, isDraft: true });
       } else {
-        activeNode = commentNodes.find(
+        activeNode = [
+          ...editor.getApi(CommentPlugin).comment.nodes({ at }),
+        ].find(
           ([node]) =>
             editor.getApi(commentPlugin).comment.nodeId(node) ===
             activeCommentId
@@ -114,19 +123,23 @@ const BlockCommentContent = ({ children, element }: PlateElementProps) => {
       }
     }
 
-    if (!activeNode) return null;
+    let dom: HTMLElement | null = null;
 
-    return editor.api.toDOMNode(activeNode[0])!;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    open,
-    activeSuggestion,
-    activeCommentId,
-    editor.api,
-    suggestionNodes,
-    draftCommentNode,
-    commentNodes,
-  ]);
+    try {
+      if (activeNode) {
+        dom = editor.api.toDOMNode(activeNode[0]) ?? null;
+      }
+
+      if (!dom) {
+        // 找不到具体评论文本时退回整个块，保证弹层始终贴着内容。
+        dom = editor.api.toDOMNode(element) ?? null;
+      }
+    } catch {
+      dom = null;
+    }
+
+    setAnchorElement(dom);
+  }, [open, activeSuggestion, activeCommentId, editor, element]);
 
   if (!isTopLevelBlock) return <>{children}</>;
 
@@ -161,8 +174,12 @@ const BlockCommentContent = ({ children, element }: PlateElementProps) => {
           className="max-h-[min(50dvh,calc(-24px+var(--radix-popper-available-height)))] w-[380px] min-w-[130px] max-w-[calc(100vw-24px)] overflow-y-auto p-0 data-[state=closed]:opacity-0"
           onCloseAutoFocus={(e) => e.preventDefault()}
           onOpenAutoFocus={(e) => e.preventDefault()}
-          align="center"
+          // 贴着被评论文本下方、与文本起始对齐（Notion 式），避免居中
+          // 定位随锚点宽度变化而左右乱跳。
+          align="start"
+          collisionPadding={12}
           side="bottom"
+          sideOffset={6}
         >
           {isCommenting ? (
             <CommentCreateForm className="p-4" focusOnMount />

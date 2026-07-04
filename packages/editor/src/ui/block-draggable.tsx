@@ -440,12 +440,26 @@ const InsertBelowButton = React.memo(function InsertBelowButton() {
 
     if (!path) return;
 
-    const at = event.altKey ? path : PathApi.next(path);
+    // 当前行本身是空段落时原地唤起搜索，不再额外插入一行。
+    const isEmptyParagraph =
+      element.type === editor.getType(KEYS.p) &&
+      editor.api.isEmpty(element as TElement);
 
-    editor.tf.insertNodes(editor.api.create.block({ type: KEYS.p }), {
-      at,
-      select: true,
-    });
+    if (isEmptyParagraph && !event.altKey) {
+      const start = editor.api.start(path);
+
+      if (start) {
+        editor.tf.select(start);
+      }
+    } else {
+      const at = event.altKey ? path : PathApi.next(path);
+
+      editor.tf.insertNodes(editor.api.create.block({ type: KEYS.p }), {
+        at,
+        select: true,
+      });
+    }
+
     editor.tf.focus();
     // Open the slash menu after focus lands back in the editable, otherwise
     // the combobox stays hidden because the button still owns DOM focus.

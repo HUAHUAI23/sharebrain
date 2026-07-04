@@ -32,6 +32,8 @@ export function createMediaRoutes() {
   app.get("/api/media/:mediaId/raw", async (context) => {
     const service = new MediaService(context.var.db, context.var.env);
     const { url } = await service.createReadUrl(context.var.auth, context.req.param("mediaId"));
+    // 重定向目标带短期签名，禁止浏览器/中间层缓存本次跳转结果。
+    context.header("Cache-Control", "no-store");
     return context.redirect(url, 302);
   });
 
