@@ -439,6 +439,24 @@ export const documentVersions = pgTable(
   ],
 );
 
+export const documentReviewStates = pgTable(
+  "document_review_states",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    documentId: uuid("document_id")
+      .primaryKey()
+      .references(() => documents.id),
+    discussions: jsonb("discussions").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+    updatedBy: uuid("updated_by")
+      .notNull()
+      .references(() => users.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_document_review_states_tenant").on(table.tenantId)],
+);
+
 export const documentBlocks = pgTable(
   "document_blocks",
   {

@@ -1,13 +1,14 @@
 import type { TComment } from '../ui/comment';
 
 import { createPlatePlugin } from 'platejs/react';
+import type { PlateEditor } from 'platejs/react';
 
 import { BlockDiscussion } from '../ui/block-discussion';
 
 export type TDiscussion = {
   id: string;
   comments: TComment[];
-  createdAt: Date;
+  createdAt: Date | string;
   isResolved: boolean;
   userId: string;
   documentContent?: string;
@@ -19,6 +20,8 @@ export type TDiscussionUser = {
   avatarUrl?: string;
   hue?: number;
 };
+
+export type DiscussionChangeHandler = (discussions: TDiscussion[]) => void;
 
 const BLOCK_SUGGESTION_SELECTOR = '[data-block-suggestion="true"]';
 
@@ -70,6 +73,7 @@ export const discussionPlugin = createPlatePlugin({
   options: {
     currentUserId: fallbackUser.id,
     discussions: [] as TDiscussion[],
+    onDiscussionsChange: null as DiscussionChangeHandler | null,
     users: { [fallbackUser.id]: fallbackUser } as Record<string, TDiscussionUser>,
   },
 })
@@ -81,5 +85,17 @@ export const discussionPlugin = createPlatePlugin({
       getOption('users')[getOption('currentUserId')] ?? fallbackUser,
     user: (id: string) => getOption('users')[id] ?? fallbackUser,
   }));
+
+export function setEditorDiscussions(
+  editor: PlateEditor,
+  discussions: TDiscussion[],
+  options: { notify?: boolean } = {}
+) {
+  editor.setOption(discussionPlugin, 'discussions', discussions);
+
+  if (options.notify === false) return;
+
+  editor.getOption(discussionPlugin, 'onDiscussionsChange')?.(discussions);
+}
 
 export const DiscussionKit = [discussionPlugin];

@@ -110,6 +110,7 @@ export const PlaceholderElement = withHOC(
           isUpload: true,
           name: element.mediaType === KEYS.file ? uploadedFile.name : '',
           placeholderId: element.id as string,
+          ...(uploadedFile.key ? { sourceKey: uploadedFile.key } : {}),
           type: element.mediaType!,
           url: uploadedFile.url,
         };

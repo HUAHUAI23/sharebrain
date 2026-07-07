@@ -59,5 +59,6 @@ export const queryKeys = {
   documents: (projectId: string, moduleId?: string, moduleRecordId?: string | null) =>
     ["projects", projectId, "documents", moduleId ?? "all", moduleRecordId ?? "none"] as const,
   document: (documentId: string) => ["documents", documentId] as const,
+  documentDiscussions: (documentId: string) => ["documents", documentId, "discussions"] as const,
   search: (query: string) => ["search", query] as const,
 };

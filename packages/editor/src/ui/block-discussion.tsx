@@ -33,6 +33,8 @@ import { Comment, CommentCreateForm } from './comment';
 export const BlockDiscussion: RenderNodeWrapper<AnyPluginConfig> =
   (_props) => (props) => <BlockCommentContent {...props} />;
 
+const getCreatedAtTime = (value: Date | string) => new Date(value).getTime();
+
 const BlockCommentContent = ({ children, element }: PlateElementProps) => {
   const editor = useEditorRef();
   const commentsApi = editor.getApi(CommentPlugin).comment;
@@ -65,7 +67,7 @@ const BlockCommentContent = ({ children, element }: PlateElementProps) => {
   const sortedMergedData = [
     ...resolvedDiscussions,
     ...resolvedSuggestions,
-  ].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  ].sort((a, b) => getCreatedAtTime(a.createdAt) - getCreatedAtTime(b.createdAt));
 
   const selected =
     resolvedDiscussions.some((d) => d.id === activeCommentId) ||

@@ -1,9 +1,20 @@
 import {
   createDocumentRequestSchema,
+  documentDiscussionListSchema,
+  documentDiscussionsResponseSchema,
+  extractDocumentInlineMediaIds,
   updateDocumentRequestSchema,
   type AuthContext,
 } from "@sharebrain/contracts";
-import { documentVersions, documents, moduleRecords, projectModules, projects } from "@sharebrain/db/schema";
+import { syncDocumentInlineMediaUsagesWithClient } from "@sharebrain/db";
+import {
+  documentReviewStates,
+  documentVersions,
+  documents,
+  moduleRecords,
+  projectModules,
+  projects,
+} from "@sharebrain/db/schema";
 import { and, asc, count, desc, eq, isNull } from "drizzle-orm";
 
 import { ApiError } from "../../app/api-error";
@@ -120,37 +131,65 @@ export class DocumentsService {
     return serializeDocumentDetail(document, version);
   }
 
+  async getDiscussions(auth: AuthContext, documentId: string) {
+    const document = await this.ensureDocument(auth, documentId);
+    const [reviewState] = await this.db
+      .select({ discussions: documentReviewStates.discussions })
+      .from(documentReviewStates)
+      .where(and(eq(documentReviewStates.tenantId, auth.tenantId), eq(documentReviewStates.documentId, document.id)))
+      .limit(1);
+
+    const parsed = documentDiscussionListSchema.safeParse(reviewState?.discussions ?? []);
+
+    return documentDiscussionsResponseSchema.parse({
+      discussions: parsed.success ? parsed.data : [],
+    });
+  }
+
   async update(auth: AuthContext, documentId: string, input: unknown) {
     const payload = parseJson(updateDocumentRequestSchema, input);
     const existing = await this.ensureDocument(auth, documentId);
     const nextVersion = payload.plateJson === undefined ? existing.currentVersion : existing.currentVersion + 1;
-    const [document] = await this.db
-      .update(documents)
-      .set({
-        title: payload.title ?? existing.title,
-        visibility: payload.visibility ?? existing.visibility,
-        currentVersion: nextVersion,
-        updatedBy: auth.userId,
-        updatedAt: new Date(),
-      })
-      .where(eq(documents.id, existing.id))
-      .returning();
+    const document = await this.db.transaction(async (tx) => {
+      const [updatedDocument] = await tx
+        .update(documents)
+        .set({
+          title: payload.title ?? existing.title,
+          visibility: payload.visibility ?? existing.visibility,
+          currentVersion: nextVersion,
+          updatedBy: auth.userId,
+          updatedAt: new Date(),
+        })
+        .where(eq(documents.id, existing.id))
+        .returning();
 
-    if (!document) {
-      throw new ApiError("DOCUMENT_UPDATE_FAILED", "文档更新失败。", 500);
-    }
+      if (!updatedDocument) {
+        throw new ApiError("DOCUMENT_UPDATE_FAILED", "文档更新失败。", 500);
+      }
+
+      if (payload.plateJson !== undefined) {
+        await tx.insert(documentVersions).values({
+          tenantId: auth.tenantId,
+          documentId: updatedDocument.id,
+          versionNo: nextVersion,
+          plateJson: payload.plateJson,
+          markdown: payload.markdown ?? "",
+          plainText: payload.plainText ?? "",
+          createdBy: auth.userId,
+          updatedBy: auth.userId,
+        });
+        await syncDocumentInlineMediaUsagesWithClient(tx, {
+          tenantId: auth.tenantId,
+          documentId: updatedDocument.id,
+          mediaIds: extractDocumentInlineMediaIds(payload.plateJson),
+          userId: auth.userId,
+        });
+      }
+
+      return updatedDocument;
+    });
 
     if (payload.plateJson !== undefined) {
-      await this.db.insert(documentVersions).values({
-        tenantId: auth.tenantId,
-        documentId: document.id,
-        versionNo: nextVersion,
-        plateJson: payload.plateJson,
-        markdown: payload.markdown ?? "",
-        plainText: payload.plainText ?? "",
-        createdBy: auth.userId,
-        updatedBy: auth.userId,
-      });
       await this.indexer.indexDocument(auth, document.id, payload.plateJson, payload.plainText);
     }
 
@@ -158,11 +197,26 @@ export class DocumentsService {
   }
 
   async softDelete(auth: AuthContext, documentId: string) {
-    const [document] = await this.db
-      .update(documents)
-      .set({ deletedAt: new Date(), status: "deleted", updatedBy: auth.userId, updatedAt: new Date() })
-      .where(and(eq(documents.id, documentId), eq(documents.tenantId, auth.tenantId), isNull(documents.deletedAt)))
-      .returning();
+    const document = await this.db.transaction(async (tx) => {
+      const [deletedDocument] = await tx
+        .update(documents)
+        .set({ deletedAt: new Date(), status: "deleted", updatedBy: auth.userId, updatedAt: new Date() })
+        .where(and(eq(documents.id, documentId), eq(documents.tenantId, auth.tenantId), isNull(documents.deletedAt)))
+        .returning();
+
+      if (!deletedDocument) {
+        throw new ApiError("DOCUMENT_NOT_FOUND", "文档不存在。", 404);
+      }
+
+      await syncDocumentInlineMediaUsagesWithClient(tx, {
+        tenantId: auth.tenantId,
+        documentId: deletedDocument.id,
+        mediaIds: [],
+        userId: auth.userId,
+      });
+
+      return deletedDocument;
+    });
 
     if (!document) {
       throw new ApiError("DOCUMENT_NOT_FOUND", "文档不存在。", 404);
@@ -172,11 +226,33 @@ export class DocumentsService {
   }
 
   async restore(auth: AuthContext, documentId: string) {
-    const [document] = await this.db
-      .update(documents)
-      .set({ deletedAt: null, status: "active", updatedBy: auth.userId, updatedAt: new Date() })
-      .where(and(eq(documents.id, documentId), eq(documents.tenantId, auth.tenantId)))
-      .returning();
+    const document = await this.db.transaction(async (tx) => {
+      const [restoredDocument] = await tx
+        .update(documents)
+        .set({ deletedAt: null, status: "active", updatedBy: auth.userId, updatedAt: new Date() })
+        .where(and(eq(documents.id, documentId), eq(documents.tenantId, auth.tenantId)))
+        .returning();
+
+      if (!restoredDocument) {
+        throw new ApiError("DOCUMENT_NOT_FOUND", "文档不存在。", 404);
+      }
+
+      const [latestVersion] = await tx
+        .select({ plateJson: documentVersions.plateJson })
+        .from(documentVersions)
+        .where(and(eq(documentVersions.tenantId, auth.tenantId), eq(documentVersions.documentId, restoredDocument.id)))
+        .orderBy(desc(documentVersions.versionNo))
+        .limit(1);
+
+      await syncDocumentInlineMediaUsagesWithClient(tx, {
+        tenantId: auth.tenantId,
+        documentId: restoredDocument.id,
+        mediaIds: extractDocumentInlineMediaIds(latestVersion?.plateJson ?? []),
+        userId: auth.userId,
+      });
+
+      return restoredDocument;
+    });
 
     if (!document) {
       throw new ApiError("DOCUMENT_NOT_FOUND", "文档不存在。", 404);

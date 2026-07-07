@@ -94,7 +94,7 @@ export function MentionInputElement(
         showTrigger={false}
         trigger="@"
       >
-        <span className="inline-block rounded-md bg-muted px-1.5 py-0.5 align-baseline text-sm ring-ring focus-within:ring-2">
+        <span className="inline-block rounded-sm bg-muted px-1.5 py-0.5 align-baseline text-sm">
           <InlineComboboxInput />
         </span>
 
@@ -119,4 +119,3 @@ export function MentionInputElement(
     </PlateElement>
   );
 }
-

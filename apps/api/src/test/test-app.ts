@@ -1,3 +1,5 @@
+import "@sharebrain/config/dotenv";
+
 import { createApp } from "../app/create-app";
 import type { AppDependencies } from "../app/middleware";
 

@@ -45,6 +45,9 @@ export type MediaUsageResourceType = z.infer<typeof mediaUsageResourceTypeSchema
 export const mediaUsageKindSchema = z.enum(["avatar", "attachment", "cover", "inline"]);
 export type MediaUsageKind = z.infer<typeof mediaUsageKindSchema>;
 
+export const createMediaUploadUsageKindSchema = z.enum(["avatar", "inline"]);
+export type CreateMediaUploadUsageKind = z.infer<typeof createMediaUploadUsageKindSchema>;
+
 export const searchEntityTypeSchema = z.enum([
   "project",
   "document",
@@ -264,6 +267,43 @@ export const documentDetailSchema = documentSummarySchema.extend({
 });
 export type DocumentDetail = z.infer<typeof documentDetailSchema>;
 
+export const DOCUMENT_REVIEW_MAP_NAME = "review";
+export const DOCUMENT_DISCUSSIONS_KEY = "discussions";
+export const DOCUMENT_DISCUSSION_LIMITS = {
+  commentsPerDiscussion: 500,
+  discussionsPerDocument: 1000,
+} as const;
+
+export const documentDiscussionCommentSchema = z.object({
+  id: z.string().trim().min(1).max(120),
+  contentRich: z.array(plateNodeSchema),
+  createdAt: isoDateTimeSchema,
+  discussionId: z.string().trim().min(1).max(120),
+  isEdited: z.boolean(),
+  userId: uuidSchema,
+});
+export type DocumentDiscussionComment = z.infer<typeof documentDiscussionCommentSchema>;
+
+export const documentDiscussionSchema = z.object({
+  id: z.string().trim().min(1).max(120),
+  comments: z.array(documentDiscussionCommentSchema).max(DOCUMENT_DISCUSSION_LIMITS.commentsPerDiscussion),
+  createdAt: isoDateTimeSchema,
+  documentContent: z.string().max(2000).optional(),
+  isResolved: z.boolean(),
+  userId: uuidSchema,
+});
+export type DocumentDiscussion = z.infer<typeof documentDiscussionSchema>;
+
+export const documentDiscussionListSchema = z
+  .array(documentDiscussionSchema)
+  .max(DOCUMENT_DISCUSSION_LIMITS.discussionsPerDocument);
+export type DocumentDiscussionList = z.infer<typeof documentDiscussionListSchema>;
+
+export const documentDiscussionsResponseSchema = z.object({
+  discussions: documentDiscussionListSchema,
+});
+export type DocumentDiscussionsResponse = z.infer<typeof documentDiscussionsResponseSchema>;
+
 export const createDocumentRequestSchema = z.object({
   moduleId: uuidSchema,
   moduleRecordId: uuidSchema.nullable().optional(),
@@ -299,7 +339,7 @@ export const createMediaUploadRequestSchema = z.object({
   fileName: z.string().trim().min(1).max(255),
   mimeType: z.string().trim().min(1).max(120),
   byteSize: z.number().int().min(1),
-  usageKind: mediaUsageKindSchema,
+  usageKind: createMediaUploadUsageKindSchema,
 });
 export type CreateMediaUploadRequest = z.infer<typeof createMediaUploadRequestSchema>;
 
@@ -312,9 +352,17 @@ export const mediaUploadResponseSchema = z.object({
 });
 export type MediaUploadResponse = z.infer<typeof mediaUploadResponseSchema>;
 
+export const completeMediaUploadUsageSchema = z.object({
+  resourceType: z.literal("document"),
+  resourceId: uuidSchema,
+  usageKind: z.literal("inline"),
+});
+export type CompleteMediaUploadUsage = z.infer<typeof completeMediaUploadUsageSchema>;
+
 export const completeMediaUploadRequestSchema = z.object({
   byteSize: z.number().int().min(1),
   mimeType: z.string().trim().min(1).max(120),
+  usage: completeMediaUploadUsageSchema.optional(),
 });
 export type CompleteMediaUploadRequest = z.infer<typeof completeMediaUploadRequestSchema>;
 

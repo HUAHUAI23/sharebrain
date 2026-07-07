@@ -39,7 +39,7 @@ flowchart LR
 - AI 最终回答必须基于 Context Pack，并附带可追溯证据来源。
 - 自定义模块字段定义存表，记录值存 `module_records.values jsonb`，并按不可变 fieldId 存储。
 - 用户内容时间线统一使用 `module_records`，`timeline_events` 不再作为用户内容事实源。
-- 媒体对象使用 S3/MinIO 私有 bucket，API 按权限签发短时 URL，引用事实源为 `media_usages`。
+- 媒体对象使用 S3/MinIO 私有 bucket，API 按权限签发短时 URL，引用事实源为 `media_usages`。文档 inline 媒体在上传完成时立即绑定 usage，并由 API/collab 文档物化按媒体节点 `sourceKey` 或媒体节点稳定 URL 校准；Worker GC 只清理没有 active usage 的孤儿媒体。
 
 ## MVP 阶段顺序
 

@@ -23,6 +23,11 @@ export function createDocumentsRoutes() {
     return context.json(await service.create(context.var.auth, context.req.param("projectId"), await context.req.json()), 201);
   });
 
+  app.get("/api/documents/:documentId/discussions", async (context) => {
+    const service = new DocumentsService(context.var.db);
+    return context.json(await service.getDiscussions(context.var.auth, context.req.param("documentId")));
+  });
+
   app.get("/api/documents/:documentId", async (context) => {
     const service = new DocumentsService(context.var.db);
     return context.json(await service.get(context.var.auth, context.req.param("documentId")));

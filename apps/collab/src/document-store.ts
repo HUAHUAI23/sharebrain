@@ -1,6 +1,15 @@
 import type { DatabaseClient } from "@sharebrain/db";
 import {
+  DOCUMENT_DISCUSSIONS_KEY,
+  DOCUMENT_REVIEW_MAP_NAME,
+  type DocumentDiscussionList,
+  documentDiscussionListSchema,
+  extractDocumentInlineMediaIds,
+} from "@sharebrain/contracts";
+import { syncDocumentInlineMediaUsagesWithClient } from "@sharebrain/db";
+import {
   documentCrdtSnapshots,
+  documentReviewStates,
   documentVersions,
   documents,
   searchItems,
@@ -13,6 +22,8 @@ import type { CollabContext } from "./auth";
 
 /** 距上一个版本超过该间隔才生成新版本行，否则原地更新最新版本。 */
 const VERSION_ROLLUP_MS = 5 * 60 * 1000;
+
+type DocumentStoreClient = Pick<DatabaseClient, "delete" | "insert" | "select" | "update">;
 
 function extractTextFromPlate(value: unknown): string {
   if (typeof value === "string") {
@@ -55,36 +66,86 @@ export async function storeDocumentSnapshot(
 ) {
   const snapshot = Buffer.from(Y.encodeStateAsUpdate(ydoc));
   const stateVector = Buffer.from(Y.encodeStateVector(ydoc));
-
-  await db
-    .insert(documentCrdtSnapshots)
-    .values({
-      tenantId: context.tenantId,
-      documentId: context.documentId,
-      ydocSnapshot: snapshot,
-      stateVector,
-      updatedBy: context.userId,
-    })
-    .onConflictDoUpdate({
-      target: documentCrdtSnapshots.documentId,
-      set: {
-        ydocSnapshot: snapshot,
-        stateVector,
-        updatedBy: context.userId,
-        updatedAt: new Date(),
-      },
-    });
-
   const sharedRoot = ydoc.get("content", Y.XmlText);
   const plateJson = yTextToSlateElement(sharedRoot).children;
   const plainText = extractTextFromPlate(plateJson);
 
-  await materializeVersion(db, context, plateJson, plainText);
-  await upsertSearchItem(db, context, plainText);
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(documentCrdtSnapshots)
+      .values({
+        tenantId: context.tenantId,
+        documentId: context.documentId,
+        ydocSnapshot: snapshot,
+        stateVector,
+        updatedBy: context.userId,
+      })
+      .onConflictDoUpdate({
+        target: documentCrdtSnapshots.documentId,
+        set: {
+          ydocSnapshot: snapshot,
+          stateVector,
+          updatedBy: context.userId,
+          updatedAt: new Date(),
+        },
+      });
+
+    const documentActive = await materializeVersion(tx, context, plateJson, plainText);
+    if (!documentActive) {
+      return;
+    }
+
+    await syncDocumentInlineMediaUsagesWithClient(tx, {
+      tenantId: context.tenantId,
+      documentId: context.documentId,
+      mediaIds: extractDocumentInlineMediaIds(plateJson),
+      userId: context.userId,
+    });
+    await materializeReviewState(tx, context, ydoc);
+    await upsertSearchItem(tx, context, plainText);
+  });
+}
+
+async function materializeReviewState(db: DocumentStoreClient, context: CollabContext, ydoc: Y.Doc) {
+  const discussions = readDocumentReviewDiscussions(ydoc);
+
+  if (discussions === null) {
+    console.warn(`collab review state skipped, invalid discussions for ${context.documentId}`);
+    return;
+  }
+
+  await db
+    .insert(documentReviewStates)
+    .values({
+      tenantId: context.tenantId,
+      documentId: context.documentId,
+      discussions,
+      updatedBy: context.userId,
+    })
+    .onConflictDoUpdate({
+      target: documentReviewStates.documentId,
+      set: {
+        discussions,
+        updatedBy: context.userId,
+        updatedAt: new Date(),
+      },
+    });
+}
+
+export function readDocumentReviewDiscussions(ydoc: Y.Doc): DocumentDiscussionList | null {
+  const reviewMap = ydoc.getMap(DOCUMENT_REVIEW_MAP_NAME);
+  const storedDiscussions = reviewMap.get(DOCUMENT_DISCUSSIONS_KEY);
+  const parsed = documentDiscussionListSchema.safeParse(storedDiscussions ?? []);
+
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  return storedDiscussions === undefined ? [] : null;
 }
 
 async function materializeVersion(
-  db: DatabaseClient,
+  db: DocumentStoreClient,
   context: CollabContext,
   plateJson: unknown,
   plainText: string,
@@ -102,7 +163,7 @@ async function materializeVersion(
     .limit(1);
 
   if (!document) {
-    return;
+    return false;
   }
 
   const [latestVersion] = await db
@@ -144,24 +205,32 @@ async function materializeVersion(
       .set({ currentVersion: nextVersionNo, updatedBy: context.userId, updatedAt: new Date() })
       .where(eq(documents.id, document.id));
 
-    return;
+    return true;
   }
 
   await db
     .update(documents)
     .set({ updatedBy: context.userId, updatedAt: new Date() })
     .where(eq(documents.id, document.id));
+
+  return true;
 }
 
 /**
  * 与 API 侧 indexer 的文档分支保持一致的最小搜索读模型更新；
  * blocks/chunks 等派生数据后续由 worker 物化。
  */
-async function upsertSearchItem(db: DatabaseClient, context: CollabContext, plainText: string) {
+async function upsertSearchItem(db: DocumentStoreClient, context: CollabContext, plainText: string) {
   const [document] = await db
     .select({ id: documents.id, projectId: documents.projectId, title: documents.title })
     .from(documents)
-    .where(and(eq(documents.id, context.documentId), isNull(documents.deletedAt)))
+    .where(
+      and(
+        eq(documents.id, context.documentId),
+        eq(documents.tenantId, context.tenantId),
+        isNull(documents.deletedAt),
+      ),
+    )
     .limit(1);
 
   if (!document) {

@@ -51,6 +51,7 @@ import { BasicMarksKit } from '../kits/basic-marks-kit';
 import {
   type TDiscussion,
   discussionPlugin,
+  setEditorDiscussions,
 } from '../kits/discussion-kit';
 
 import { Editor, EditorContainer } from './editor';
@@ -58,11 +59,13 @@ import { Editor, EditorContainer } from './editor';
 export type TComment = {
   id: string;
   contentRich: Value;
-  createdAt: Date;
+  createdAt: Date | string;
   discussionId: string;
   isEdited: boolean;
   userId: string;
 };
+
+const nowIso = () => new Date().toISOString();
 
 export function Comment(props: {
   comment: TComment;
@@ -98,14 +101,14 @@ export function Comment(props: {
         }
         return discussion;
       });
-    editor.setOption(discussionPlugin, 'discussions', updatedDiscussions);
+    setEditorDiscussions(editor, updatedDiscussions);
   };
 
   const removeDiscussion = async (id: string) => {
     const updatedDiscussions = editor
       .getOption(discussionPlugin, 'discussions')
       .filter((discussion) => discussion.id !== id);
-    editor.setOption(discussionPlugin, 'discussions', updatedDiscussions);
+    setEditorDiscussions(editor, updatedDiscussions);
   };
 
   const updateComment = async (input: {
@@ -133,7 +136,7 @@ export function Comment(props: {
         }
         return discussion;
       });
-    editor.setOption(discussionPlugin, 'discussions', updatedDiscussions);
+    setEditorDiscussions(editor, updatedDiscussions);
   };
 
   const { tf } = useEditorPlugin(CommentPlugin);
@@ -346,7 +349,7 @@ function CommentMoreDropdown(props: {
       });
 
     // Save back to session storage
-    editor.setOption(discussionPlugin, 'discussions', updatedDiscussions);
+    setEditorDiscussions(editor, updatedDiscussions);
     onRemoveComment?.();
   }, [comment.discussionId, comment.id, editor, onRemoveComment]);
 
@@ -463,18 +466,18 @@ export function CommentCreateForm({
             {
               id: nanoid(),
               contentRich: commentValue,
-              createdAt: new Date(),
+              createdAt: nowIso(),
               discussionId,
               isEdited: false,
               userId: editor.getOption(discussionPlugin, 'currentUserId'),
             },
           ],
-          createdAt: new Date(),
+          createdAt: nowIso(),
           isResolved: false,
           userId: editor.getOption(discussionPlugin, 'currentUserId'),
         };
 
-        editor.setOption(discussionPlugin, 'discussions', [
+        setEditorDiscussions(editor, [
           ...discussions,
           newDiscussion,
         ]);
@@ -485,7 +488,7 @@ export function CommentCreateForm({
       const comment: TComment = {
         id: nanoid(),
         contentRich: commentValue,
-        createdAt: new Date(),
+        createdAt: nowIso(),
         discussionId,
         isEdited: false,
         userId: editor.getOption(discussionPlugin, 'currentUserId'),
@@ -502,7 +505,7 @@ export function CommentCreateForm({
         .filter((d) => d.id !== discussionId)
         .concat(updatedDiscussion);
 
-      editor.setOption(discussionPlugin, 'discussions', updatedDiscussions);
+      setEditorDiscussions(editor, updatedDiscussions);
 
       return;
     }
@@ -525,19 +528,19 @@ export function CommentCreateForm({
         {
           id: nanoid(),
           contentRich: commentValue,
-          createdAt: new Date(),
+          createdAt: nowIso(),
           discussionId: _discussionId,
           isEdited: false,
           userId: editor.getOption(discussionPlugin, 'currentUserId'),
         },
       ],
-      createdAt: new Date(),
+      createdAt: nowIso(),
       documentContent,
       isResolved: false,
       userId: editor.getOption(discussionPlugin, 'currentUserId'),
     };
 
-    editor.setOption(discussionPlugin, 'discussions', [
+    setEditorDiscussions(editor, [
       ...discussions,
       newDiscussion,
     ]);

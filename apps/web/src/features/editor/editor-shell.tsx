@@ -9,7 +9,9 @@ import {
   EditorMoreMenu,
   EditorUploadProvider,
   RemoteCursorOverlay,
+  type TDiscussion,
 } from "@sharebrain/editor";
+import type { DocumentDiscussionsResponse } from "@sharebrain/contracts";
 import { m } from "@sharebrain/i18n";
 import { Button } from "@sharebrain/ui/components/button";
 import { Input } from "@sharebrain/ui/components/input";
@@ -18,11 +20,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, FileText } from "lucide-react";
 import type { Value } from "platejs";
 import { Plate, usePlateEditor } from "platejs/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { apiRequest, queryKeys } from "../../lib/api-client";
 import { runtimeEnv } from "../../lib/runtime-env";
-import { uploadEditorFile } from "./editor-upload";
+import { toEditorDiscussions, useEditorDiscussionsBridge } from "./editor-discussions";
+import { createEditorUploadHandler } from "./editor-upload";
 import type { DocumentResponse, MeResponse, WorkspaceView } from "../workspace/workspace-types";
 
 const emptyPlateValue: Value = [{ type: "p", children: [{ text: "" }] }];
@@ -83,6 +86,16 @@ export function EditorShell({ projectId, moduleId, documentId, recordId, onNavig
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
   });
+  const discussions = useQuery({
+    queryKey: queryKeys.documentDiscussions(documentId),
+    queryFn: () => apiRequest<DocumentDiscussionsResponse>(`/api/documents/${documentId}/discussions`),
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+  });
+  const initialDiscussions = useMemo(
+    () => toEditorDiscussions(discussions.data?.discussions ?? []),
+    [discussions.data?.discussions],
+  );
 
   if (!me.data || !document.data) {
     return (
@@ -101,6 +114,7 @@ export function EditorShell({ projectId, moduleId, documentId, recordId, onNavig
       {...(recordId ? { recordId } : {})}
       user={me.data.user}
       initialDocument={document.data}
+      initialDiscussions={initialDiscussions}
       onNavigate={onNavigate}
     />
   );
@@ -113,6 +127,7 @@ type DocumentEditorProps = {
   recordId?: string;
   user: MeResponse["user"];
   initialDocument: DocumentResponse;
+  initialDiscussions: TDiscussion[];
   onNavigate: (view: WorkspaceView) => void;
 };
 
@@ -123,11 +138,13 @@ function DocumentEditor({
   recordId,
   user,
   initialDocument,
+  initialDiscussions,
   onNavigate,
 }: DocumentEditorProps) {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(initialDocument.title);
   const savedTitleRef = useRef(initialDocument.title);
+  const uploadEditorFile = useMemo(() => createEditorUploadHandler({ documentId }), [documentId]);
 
   const editor = usePlateEditor({
     plugins: [
@@ -171,6 +188,8 @@ function DocumentEditor({
       [user.id]: { id: user.id, name: user.displayName },
     });
   }, [editor, user.id, user.displayName]);
+
+  useEditorDiscussionsBridge(editor, initialDiscussions);
 
   useEffect(() => {
     let initialValue = toPlateValue(initialDocument.plateJson);

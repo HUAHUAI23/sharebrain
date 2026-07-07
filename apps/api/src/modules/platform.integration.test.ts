@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { createTestApp } from "../test/test-app";
+import { MediaService } from "./media/media.service";
 
 import {
   authAccounts,
@@ -10,6 +11,7 @@ import {
   documentBlocks,
   documentChunks,
   documentCrdtSnapshots,
+  documentReviewStates,
   documents,
   documentVersions,
   mediaObjects,
@@ -51,6 +53,7 @@ async function resetTestWorkspace() {
   await testApp.db.delete(mediaObjects).where(eq(mediaObjects.tenantId, tenantId));
   await testApp.db.delete(documentChunks).where(eq(documentChunks.tenantId, tenantId));
   await testApp.db.delete(documentBlocks).where(eq(documentBlocks.tenantId, tenantId));
+  await testApp.db.delete(documentReviewStates).where(eq(documentReviewStates.tenantId, tenantId));
   await testApp.db.delete(documentCrdtSnapshots).where(eq(documentCrdtSnapshots.tenantId, tenantId));
   await testApp.db.delete(documentVersions).where(eq(documentVersions.tenantId, tenantId));
   await testApp.db.delete(searchItems).where(eq(searchItems.tenantId, tenantId));
@@ -479,6 +482,138 @@ describe("platform API", () => {
     );
     expect(updatedDocument.currentVersion).toBe(2);
 
+    const mediaService = new MediaService(testApp.db, testApp.env, {
+      createPostPolicy: async () => ({
+        url: "https://storage.test/upload",
+        fields: { "Content-Type": "image/png" },
+      }),
+      createReadUrl: async (key) => `https://storage.test/${key}`,
+      headObject: async () => ({ ContentLength: 64, ContentType: "image/png" }) as never,
+    });
+    const auth = {
+      userId,
+      tenantId,
+      role: "admin" as const,
+      requestId: "media-usage-test",
+    };
+    const inlineUpload = await mediaService.createUpload(auth, {
+      fileName: "inline.png",
+      mimeType: "image/png",
+      byteSize: 64,
+      usageKind: "inline",
+    });
+    const completeInlineWithoutUsage = await mediaService
+      .completeUpload(auth, inlineUpload.uploadId, {
+        byteSize: 64,
+        mimeType: "image/png",
+      })
+      .catch((error: unknown) => error);
+    expect(completeInlineWithoutUsage).toMatchObject({ code: "MEDIA_USAGE_REQUIRED" });
+    await mediaService.completeUpload(auth, inlineUpload.uploadId, {
+      byteSize: 64,
+      mimeType: "image/png",
+      usage: {
+        resourceType: "document",
+        resourceId: String(document.id),
+        usageKind: "inline",
+      },
+    });
+    const [activeUsageAfterComplete] = await testApp.db
+      .select()
+      .from(mediaUsages)
+      .where(
+        and(
+          eq(mediaUsages.mediaId, inlineUpload.mediaId),
+          eq(mediaUsages.resourceType, "document"),
+          eq(mediaUsages.resourceId, String(document.id)),
+          eq(mediaUsages.usageKind, "inline"),
+          isNull(mediaUsages.deletedAt),
+        ),
+      )
+      .limit(1);
+    expect(activeUsageAfterComplete).toBeDefined();
+
+    await request(`/api/documents/${String(document.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        plateJson: [
+          {
+            type: "img",
+            sourceKey: inlineUpload.mediaId,
+            url: `/api/media/${inlineUpload.mediaId}/raw`,
+            children: [{ text: "" }],
+          },
+        ],
+        markdown: "",
+        plainText: "",
+      }),
+    });
+    const [activeUsageAfterMaterialize] = await testApp.db
+      .select()
+      .from(mediaUsages)
+      .where(
+        and(
+          eq(mediaUsages.mediaId, inlineUpload.mediaId),
+          eq(mediaUsages.resourceType, "document"),
+          eq(mediaUsages.resourceId, String(document.id)),
+          eq(mediaUsages.usageKind, "inline"),
+          isNull(mediaUsages.deletedAt),
+        ),
+      )
+      .limit(1);
+    expect(activeUsageAfterMaterialize).toBeDefined();
+
+    await request(`/api/documents/${String(document.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        plateJson: [{ type: "p", children: [{ text: "api test searchable text without media" }] }],
+        markdown: "api test searchable text without media",
+        plainText: "api test searchable text without media",
+      }),
+    });
+    const [removedUsage] = await testApp.db
+      .select()
+      .from(mediaUsages)
+      .where(
+        and(
+          eq(mediaUsages.mediaId, inlineUpload.mediaId),
+          eq(mediaUsages.resourceType, "document"),
+          eq(mediaUsages.resourceId, String(document.id)),
+          eq(mediaUsages.usageKind, "inline"),
+        ),
+      )
+      .limit(1);
+    expect(removedUsage?.deletedAt).toBeInstanceOf(Date);
+
+    const now = new Date().toISOString();
+    await testApp.db.insert(documentReviewStates).values({
+      tenantId,
+      documentId: String(document.id),
+      discussions: [
+        {
+          id: "discussion-api-test",
+          comments: [
+            {
+              id: "comment-api-test",
+              contentRich: [{ type: "p", children: [{ text: "review state is persisted" }] }],
+              createdAt: now,
+              discussionId: "discussion-api-test",
+              isEdited: false,
+              userId,
+            },
+          ],
+          createdAt: now,
+          documentContent: "api test searchable text",
+          isResolved: false,
+          userId,
+        },
+      ],
+      updatedBy: userId,
+    });
+    const discussions = asRecord((await request(`/api/documents/${String(document.id)}/discussions`)).body);
+    expect(Array.isArray(discussions.discussions)).toBe(true);
+    expect((discussions.discussions as Array<Record<string, unknown>>)[0]?.id).toBe("discussion-api-test");
+
     const documentSearch = itemsOf((await request("/api/search?q=api%20test%20searchable")).body);
     expect(documentSearch.some((item) => item.entityType === "document" && item.entityId === document.id)).toBe(true);
     const recordSearch = itemsOf((await request("/api/search?q=registry.example")).body);
@@ -515,5 +650,5 @@ describe("platform API", () => {
       ).body,
     );
     expect(completeWithoutObject.code).toBe("MEDIA_OBJECT_UNAVAILABLE");
-  });
+  }, 15_000);
 });

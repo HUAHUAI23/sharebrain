@@ -3,7 +3,8 @@ import {
   createMediaUploadRequestSchema,
   type AuthContext,
 } from "@sharebrain/contracts";
-import { mediaObjects, mediaUploads, mediaUsages, users } from "@sharebrain/db/schema";
+import { upsertMediaUsageWithClient } from "@sharebrain/db";
+import { documents, mediaObjects, mediaUploads, users } from "@sharebrain/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { ApiError } from "../../app/api-error";
@@ -14,18 +15,31 @@ import { StorageService } from "./storage.service";
 import type { ServerEnv } from "@sharebrain/config";
 import type { DatabaseClient } from "@sharebrain/db";
 
+type MediaStorage = Pick<StorageService, "createPostPolicy" | "createReadUrl" | "headObject">;
+
 function sanitizeFileName(fileName: string) {
   return fileName.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 120);
 }
 
+function assertCanWriteContent(auth: AuthContext) {
+  if (auth.role === "viewer" || auth.role === "auditor") {
+    throw new ApiError("FORBIDDEN", "当前账号没有编辑权限。", 403);
+  }
+}
+
+function getUploadUsageKind(metadata: Record<string, unknown>) {
+  return typeof metadata.usageKind === "string" ? metadata.usageKind : null;
+}
+
 export class MediaService {
-  private readonly storage: StorageService;
+  private readonly storage: MediaStorage;
 
   constructor(
     private readonly db: DatabaseClient,
     env: ServerEnv,
+    storage?: MediaStorage,
   ) {
-    this.storage = new StorageService(env);
+    this.storage = storage ?? new StorageService(env);
     this.env = env;
   }
 
@@ -33,6 +47,10 @@ export class MediaService {
 
   async createUpload(auth: AuthContext, input: unknown) {
     const payload = parseJson(createMediaUploadRequestSchema, input);
+    if (payload.usageKind === "inline") {
+      assertCanWriteContent(auth);
+    }
+
     if (payload.byteSize > this.env.MEDIA_UPLOAD_MAX_BYTES) {
       throw new ApiError("MEDIA_TOO_LARGE", "文件超过允许大小。", 422, {
         maxBytes: this.env.MEDIA_UPLOAD_MAX_BYTES,
@@ -128,6 +146,19 @@ export class MediaService {
       throw new ApiError("MEDIA_UPLOAD_MISMATCH", "上传文件与会话限制不匹配。", 422);
     }
 
+    const uploadUsageKind = getUploadUsageKind(upload.media.metadata);
+    if (uploadUsageKind === "inline" && !payload.usage) {
+      throw new ApiError("MEDIA_USAGE_REQUIRED", "内嵌媒体必须绑定文档引用。", 422);
+    }
+
+    if (payload.usage) {
+      assertCanWriteContent(auth);
+      if (payload.usage.usageKind !== uploadUsageKind) {
+        throw new ApiError("MEDIA_USAGE_MISMATCH", "媒体引用类型与上传会话不匹配。", 422);
+      }
+      await this.ensureDocumentUsageTarget(auth, payload.usage.resourceId);
+    }
+
     try {
       const head = await this.storage.headObject(upload.media.objectKey);
       if (head.ContentLength && head.ContentLength !== payload.byteSize) {
@@ -144,27 +175,49 @@ export class MediaService {
     }
 
     const now = new Date();
-    const [media] = await this.db
-      .update(mediaObjects)
-      .set({
-        status: "active",
-        byteSize: payload.byteSize,
-        mimeType: payload.mimeType,
-        updatedBy: auth.userId,
-        updatedAt: now,
-      })
-      .where(eq(mediaObjects.id, upload.media.id))
-      .returning();
+    const media = await this.db.transaction(async (tx) => {
+      const [updatedMedia] = await tx
+        .update(mediaObjects)
+        .set({
+          status: "active",
+          byteSize: payload.byteSize,
+          mimeType: payload.mimeType,
+          deletedAt: null,
+          updatedBy: auth.userId,
+          updatedAt: now,
+        })
+        .where(and(eq(mediaObjects.id, upload.media.id), eq(mediaObjects.tenantId, auth.tenantId)))
+        .returning();
 
-    await this.db
-      .update(mediaUploads)
-      .set({
-        status: "completed",
-        completedAt: now,
-        updatedBy: auth.userId,
-        updatedAt: now,
-      })
-      .where(eq(mediaUploads.id, upload.upload.id));
+      if (!updatedMedia) {
+        throw new ApiError("MEDIA_NOT_FOUND", "媒体对象不存在。", 404);
+      }
+
+      if (payload.usage) {
+        await upsertMediaUsageWithClient(tx, {
+          tenantId: auth.tenantId,
+          mediaId: updatedMedia.id,
+          resourceType: payload.usage.resourceType,
+          resourceId: payload.usage.resourceId,
+          usageKind: payload.usage.usageKind,
+          userId: auth.userId,
+          now,
+        });
+      }
+
+      await tx
+        .update(mediaUploads)
+        .set({
+          status: "completed",
+          completedAt: now,
+          deletedAt: null,
+          updatedBy: auth.userId,
+          updatedAt: now,
+        })
+        .where(eq(mediaUploads.id, upload.upload.id));
+
+      return updatedMedia;
+    });
 
     if (!media) {
       throw new ApiError("MEDIA_NOT_FOUND", "媒体对象不存在。", 404);
@@ -189,35 +242,62 @@ export class MediaService {
 
   async attachAvatar(auth: AuthContext, mediaId: string) {
     const now = new Date();
-    await this.db.insert(mediaUsages).values({
-      tenantId: auth.tenantId,
-      mediaId,
-      resourceType: "user",
-      resourceId: auth.userId,
-      usageKind: "avatar",
-      metadata: {},
-      createdBy: auth.userId,
-      updatedBy: auth.userId,
-      createdAt: now,
-      updatedAt: now,
-    }).onConflictDoUpdate({
-      target: [mediaUsages.mediaId, mediaUsages.resourceType, mediaUsages.resourceId, mediaUsages.usageKind],
-      set: {
-        updatedBy: auth.userId,
-        updatedAt: now,
-      },
-    });
+    await this.ensureActiveMedia(auth, mediaId);
+    const user = await this.db.transaction(async (tx) => {
+      await upsertMediaUsageWithClient(tx, {
+        tenantId: auth.tenantId,
+        mediaId,
+        resourceType: "user",
+        resourceId: auth.userId,
+        usageKind: "avatar",
+        userId: auth.userId,
+        now,
+      });
 
-    const [user] = await this.db
-      .update(users)
-      .set({ avatarMediaId: mediaId, updatedBy: auth.userId, updatedAt: now })
-      .where(and(eq(users.id, auth.userId), eq(users.tenantId, auth.tenantId)))
-      .returning();
+      const [updatedUser] = await tx
+        .update(users)
+        .set({ avatarMediaId: mediaId, updatedBy: auth.userId, updatedAt: now })
+        .where(and(eq(users.id, auth.userId), eq(users.tenantId, auth.tenantId)))
+        .returning();
+
+      return updatedUser;
+    });
 
     if (!user) {
       throw new ApiError("USER_NOT_FOUND", "用户不存在。", 404);
     }
 
     return { avatarMediaId: mediaId };
+  }
+
+  private async ensureDocumentUsageTarget(auth: AuthContext, documentId: string) {
+    const [document] = await this.db
+      .select({ id: documents.id })
+      .from(documents)
+      .where(and(eq(documents.id, documentId), eq(documents.tenantId, auth.tenantId), isNull(documents.deletedAt)))
+      .limit(1);
+
+    if (!document) {
+      throw new ApiError("DOCUMENT_NOT_FOUND", "文档不存在。", 404);
+    }
+  }
+
+  private async ensureActiveMedia(auth: AuthContext, mediaId: string) {
+    const [media] = await this.db
+      .select({ id: mediaObjects.id })
+      .from(mediaObjects)
+      .where(
+        and(
+          eq(mediaObjects.id, mediaId),
+          eq(mediaObjects.tenantId, auth.tenantId),
+          eq(mediaObjects.status, "active"),
+          isNull(mediaObjects.deletedAt),
+        ),
+      )
+      .limit(1);
+
+    if (!media) {
+      throw new ApiError("MEDIA_NOT_FOUND", "媒体对象不存在或不可访问。", 404);
+    }
   }
 }

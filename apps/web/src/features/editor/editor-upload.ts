@@ -54,41 +54,47 @@ function postToStorage(
  * 编辑器媒体上传：走 /api/media 的预签名直传链路
  * （创建会话 → 直传对象存储 → 确认完成 → 换取读取地址）。
  */
-export const uploadEditorFile: EditorUploadHandler = async (
-  file,
-  { onProgress, signal },
-) => {
-  const mimeType = file.type || FALLBACK_MIME_TYPE;
+export function createEditorUploadHandler(options: {
+  documentId: string;
+}): EditorUploadHandler {
+  return async (file, { onProgress, signal }) => {
+    const mimeType = file.type || FALLBACK_MIME_TYPE;
 
-  const upload = await apiRequest<MediaUploadResponse>("/api/media/uploads", {
-    method: "POST",
-    body: {
-      fileName: file.name,
-      mimeType,
-      byteSize: file.size,
-      usageKind: "inline",
-    },
-  });
+    const upload = await apiRequest<MediaUploadResponse>("/api/media/uploads", {
+      method: "POST",
+      body: {
+        fileName: file.name,
+        mimeType,
+        byteSize: file.size,
+        usageKind: "inline",
+      },
+    });
 
-  await postToStorage(upload, file, mimeType, {
-    onProgress: (progress) => onProgress({ progress }),
-    signal,
-  });
+    await postToStorage(upload, file, mimeType, {
+      onProgress: (progress) => onProgress({ progress }),
+      signal,
+    });
 
-  await apiRequest<MediaObject>(`/api/media/uploads/${upload.uploadId}/complete`, {
-    method: "POST",
-    body: {
-      byteSize: file.size,
-      mimeType,
-    },
-  });
+    await apiRequest<MediaObject>(`/api/media/uploads/${upload.uploadId}/complete`, {
+      method: "POST",
+      body: {
+        byteSize: file.size,
+        mimeType,
+        usage: {
+          resourceType: "document",
+          resourceId: options.documentId,
+          usageKind: "inline",
+        },
+      },
+    });
 
-  return {
-    key: upload.mediaId,
-    name: file.name,
-    size: file.size,
-    type: mimeType,
-    // 预签名读取 URL 会过期，文档里必须落稳定地址，由 API 按需 302 到新签名。
-    url: `${runtimeEnv.WEB_PUBLIC_API_BASE_URL}/api/media/${upload.mediaId}/raw`,
+    return {
+      key: upload.mediaId,
+      name: file.name,
+      size: file.size,
+      type: mimeType,
+      // 预签名读取 URL 会过期，文档里必须落稳定地址，由 API 按需 302 到新签名。
+      url: `${runtimeEnv.WEB_PUBLIC_API_BASE_URL}/api/media/${upload.mediaId}/raw`,
+    };
   };
-};
+}

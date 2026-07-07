@@ -1,6 +1,7 @@
 export { BaseEditorKit } from './editor-base-kit';
 export {
   discussionPlugin,
+  setEditorDiscussions,
   type TDiscussion,
   type TDiscussionUser,
 } from './kits/discussion-kit';
