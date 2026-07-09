@@ -40,10 +40,11 @@ src/
 
 规则:
 - `apps/web/components.json` 只作为 shadcn monorepo app 侧配置，`ui/utils` 指向 `@sharebrain/ui`；基础组件不得生成到 `apps/web/src/components/ui`。
+- Web 页面身份以 TanStack Router URL 为事实源，`apps/web/src/app/router.tsx` 维护路由树和 `WorkspaceView` 到 URL 的导航适配；缺少模块上下文的文档入口必须使用显式 `document-lookup` 意图进入 `/documents/:documentId`，不得用空 `moduleId` 伪造文档路由。刷新、前进后退和分享链接不得依赖 React 内存状态或 Zustand。
 - feature 内部可拆 `components/queries/mutations/hooks`，跨 feature 复用才上移。
 - 服务端状态必须通过 TanStack Query，临时 UI 状态才放 Zustand。
 - 登录/注册界面放 `features/auth`，只调用认证 API，不保存明文 token。
-- Plate 编辑器基座（插件 kits、节点 UI、工具栏）统一封装在 `packages/editor`；`features/editor` 只保留业务 shell（文档加载/保存、协作接线）。
+- Plate 编辑器基座（插件 kits、节点 UI、工具栏、评论 action/read helper）统一封装在 `packages/editor`；`features/editor` 只保留业务 shell（文档加载/保存、协作接线、Yjs/API/read state adapter）。
 - 首页放 `features/home`，项目模块放 `features/project`，媒体交互放 `features/media`。
 - `features/project` 按渲染原型拆分组件，`project-view.tsx` 只保留项目布局和模块选择，collection/timeline/record 文档列表放独立文件。
 
@@ -100,8 +101,9 @@ src/
 - `ui` 只放无业务含义的基础组件和设计 token。
 - `editor` 是 Plate 编辑器基座唯一落点：只放无业务含义的插件 kits、节点 UI、工具栏和静态渲染；文案必须走 `@sharebrain/i18n`，基础组件从 `@sharebrain/ui` 引入，不得依赖业务包。
 - `editor` 内需要业务数据的能力通过 Provider 注入而非写死：媒体上传走 `EditorUploadProvider`（宿主注入 `EditorUploadHandler`，缺省回退本地 object URL），mention 候选走 `EditorMentionProvider`；Web 侧的实现在 `apps/web/src/features/editor/editor-upload.ts`（由 shell 通过 `createEditorUploadHandler({ documentId })` 注入文档上下文，走 `/api/media` 预签名直传，文档内落 `/api/media/:id/raw` 稳定地址）。editor 只把上传返回的 opaque `key` 保存为媒体节点 `sourceKey`，不解释 ShareBrain mediaId。
+- 评论线程遵循同一边界：`packages/editor` 只提供 discussion action、未读计算、删除线程 UI、正文 mark 清理和插件状态投影；Web 在 `apps/web/src/features/editor/editor-discussions.ts` 将 action 写入 Yjs `review.discussionsById`，并通过 API 持久化 per-user read state。
 - `ui` 是 shadcn 组件唯一落点；`packages/ui/components.json` 使用 `#components/#lib/#hooks` 本地别名，新增 shadcn 组件必须从 `packages/ui` 目录执行 CLI。
-- `packages/ui/src/styles/globals.css` 是 Tailwind v4 入口和设计 token 来源；`apps/web/src/styles/app.css` 只保留页面壳、搜索浮层、项目侧栏、业务时间线、业务表单和 Plate 编辑器样式。
+- `packages/ui/src/styles/globals.css` 是 Tailwind v4 入口和设计 token 来源；`apps/web/src/styles/app.css` 只保留页面壳、搜索浮层、项目侧栏、业务时间线和 Plate 编辑器排版等跨组件协调样式，普通组件样式优先写在组件 `className`。
 - `packages/ui/src/components/ui-provider.tsx` 统一挂载 TooltipProvider 和 Toaster；Web 根部只组合该 Provider，不在 feature 内重复挂基础 UI provider。
 - 可跨页面复用且无业务含义的 Notion 风格交互组件放在 `packages/ui`，例如 `notion.tsx` primitives 和 `NotionCreateRow`；app 侧只保留场景布局覆盖。
 - `config` 统一校验环境变量，不在 app 中散落读取 `process.env`。

@@ -10,7 +10,7 @@ ShareBrain 是面向私有化交付、运维和项目团队的项目周期上下
 |------|------|------|
 | Monorepo | Bun workspaces + catalog、Turborepo | Bun 统一包管理和运行时，Turbo 编排 app/package 任务 |
 | Web | React 19、Vite 8、Plate 53、shadcn/ui、Tailwind v4 | 建立 Notion 风格个人工作台、模块页和 Markdown 编辑器 |
-| 状态与数据 | TanStack Query、Zustand、TanStack Router/Table/Form | Query 管服务端状态，Zustand 管局部 UI 状态 |
+| 状态与数据 | TanStack Query、TanStack Router、Zustand、TanStack Table/Form | Router 管页面 URL 状态，Query 管服务端状态，Zustand 管局部 UI 状态 |
 | API | Hono、Zod、OpenAPI | 轻量主业务 API，route/service 分层，所有入参出参基于 contract |
 | 协作 | Hocuspocus、Yjs | 独立 WebSocket 协作服务，保存 CRDT snapshot |
 | 数据 | PostgreSQL、Drizzle ORM | PostgreSQL 作为事实库，开发阶段 Drizzle push 直推 schema；模块记录 values 使用 jsonb |
@@ -40,6 +40,7 @@ flowchart LR
 - 自定义模块字段定义存表，记录值存 `module_records.values jsonb`，并按不可变 fieldId 存储。
 - 用户内容时间线统一使用 `module_records`，`timeline_events` 不再作为用户内容事实源。
 - 媒体对象使用 S3/MinIO 私有 bucket，API 按权限签发短时 URL，引用事实源为 `media_usages`。文档 inline 媒体在上传完成时立即绑定 usage，并由 API/collab 文档物化按媒体节点 `sourceKey` 或媒体节点稳定 URL 校准；Worker GC 只清理没有 active usage 的孤儿媒体。
+- Web 页面身份以 TanStack Router URL 为事实源；文档编辑页、项目模块页和默认模块页必须支持刷新恢复、浏览器前进后退和深链接。Zustand 只承载侧栏、面板、弹层等局部 UI 状态。
 
 ## MVP 阶段顺序
 

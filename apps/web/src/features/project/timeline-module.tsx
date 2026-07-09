@@ -1,11 +1,12 @@
 import { Input } from "@sharebrain/ui/components/input";
 import { m } from "@sharebrain/i18n";
 import { NotionCreateRow } from "@sharebrain/ui/components/notion-create-row";
-import { NotionEmpty, NotionIcon } from "@sharebrain/ui/components/notion";
+import { NotionEmpty } from "@sharebrain/ui/components/notion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListTree } from "lucide-react";
 import { useState } from "react";
 
+import { PageTitle } from "../../components/page-title";
 import { ApiClientError } from "../../lib/api-client";
 import { apiRequest, queryKeys } from "../../lib/api-client";
 import type { RecordsResponse } from "../workspace/workspace-types";
@@ -44,15 +45,11 @@ export function TimelineModule({ projectId, moduleId, module, onNavigate }: Modu
 
   return (
     <div className="module-page">
-      <header className="page-title">
-        <NotionIcon size="lg">
-          <ListTree size={24} />
-        </NotionIcon>
-        <div>
-          <h1>{module?.name ?? m.module_timeline_label()}</h1>
-          <p>{m.module_timeline_description()}</p>
-        </div>
-      </header>
+      <PageTitle
+        icon={<ListTree size={24} />}
+        title={module?.name ?? m.module_timeline_label()}
+        description={m.module_timeline_description()}
+      />
       <NotionCreateRow
         value={title}
         onValueChange={(value) => {
@@ -64,7 +61,8 @@ export function TimelineModule({ projectId, moduleId, module, onNavigate }: Modu
         ariaLabel={m.timeline_create_aria()}
         isPending={createRecord.isPending}
         error={createError}
-        className="record-composer"
+        className="-mx-1 mb-6 focus-within:bg-muted"
+        inputClassName="font-semibold"
       >
         {module?.fields.map((field) => (
           <label className="grid min-h-7 grid-cols-[132px_minmax(0,1fr)] items-center gap-2 py-px text-[13px] text-muted-foreground max-[860px]:grid-cols-1 max-[860px]:gap-1" key={field.id}>

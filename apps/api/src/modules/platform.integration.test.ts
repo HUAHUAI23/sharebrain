@@ -11,6 +11,7 @@ import {
   documentBlocks,
   documentChunks,
   documentCrdtSnapshots,
+  documentDiscussionReadStates,
   documentReviewStates,
   documents,
   documentVersions,
@@ -53,6 +54,7 @@ async function resetTestWorkspace() {
   await testApp.db.delete(mediaObjects).where(eq(mediaObjects.tenantId, tenantId));
   await testApp.db.delete(documentChunks).where(eq(documentChunks.tenantId, tenantId));
   await testApp.db.delete(documentBlocks).where(eq(documentBlocks.tenantId, tenantId));
+  await testApp.db.delete(documentDiscussionReadStates).where(eq(documentDiscussionReadStates.tenantId, tenantId));
   await testApp.db.delete(documentReviewStates).where(eq(documentReviewStates.tenantId, tenantId));
   await testApp.db.delete(documentCrdtSnapshots).where(eq(documentCrdtSnapshots.tenantId, tenantId));
   await testApp.db.delete(documentVersions).where(eq(documentVersions.tenantId, tenantId));
@@ -599,12 +601,14 @@ describe("platform API", () => {
               createdAt: now,
               discussionId: "discussion-api-test",
               isEdited: false,
+              updatedAt: now,
               userId,
             },
           ],
           createdAt: now,
           documentContent: "api test searchable text",
           isResolved: false,
+          updatedAt: now,
           userId,
         },
       ],
@@ -612,7 +616,19 @@ describe("platform API", () => {
     });
     const discussions = asRecord((await request(`/api/documents/${String(document.id)}/discussions`)).body);
     expect(Array.isArray(discussions.discussions)).toBe(true);
+    expect(Array.isArray(discussions.readStates)).toBe(true);
     expect((discussions.discussions as Array<Record<string, unknown>>)[0]?.id).toBe("discussion-api-test");
+    const readStateResponse = asRecord(
+      (
+        await request(`/api/documents/${String(document.id)}/discussions/read`, {
+          method: "POST",
+          body: JSON.stringify({
+            items: [{ discussionId: "discussion-api-test", activityKey: "activity-1" }],
+          }),
+        })
+      ).body,
+    );
+    expect((readStateResponse.readStates as Array<Record<string, unknown>>)[0]?.activityKey).toBe("activity-1");
 
     const documentSearch = itemsOf((await request("/api/search?q=api%20test%20searchable")).body);
     expect(documentSearch.some((item) => item.entityType === "document" && item.entityId === document.id)).toBe(true);

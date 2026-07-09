@@ -1,8 +1,12 @@
 import type { DatabaseClient } from "@sharebrain/db";
 import {
-  DOCUMENT_DISCUSSIONS_KEY,
+  DOCUMENT_DISCUSSION_COMMENTS_BY_ID_KEY,
+  DOCUMENT_COMMENT_MARK_PREFIX,
+  DOCUMENT_DISCUSSIONS_BY_ID_KEY,
+  DOCUMENT_DRAFT_COMMENT_MARK_KEY,
   DOCUMENT_REVIEW_MAP_NAME,
   type DocumentDiscussionList,
+  documentDiscussionSchema,
   documentDiscussionListSchema,
   extractDocumentInlineMediaIds,
 } from "@sharebrain/contracts";
@@ -101,13 +105,20 @@ export async function storeDocumentSnapshot(
       mediaIds: extractDocumentInlineMediaIds(plateJson),
       userId: context.userId,
     });
-    await materializeReviewState(tx, context, ydoc);
+    await materializeReviewState(tx, context, ydoc, plateJson);
     await upsertSearchItem(tx, context, plainText);
   });
 }
 
-async function materializeReviewState(db: DocumentStoreClient, context: CollabContext, ydoc: Y.Doc) {
-  const discussions = readDocumentReviewDiscussions(ydoc);
+async function materializeReviewState(
+  db: DocumentStoreClient,
+  context: CollabContext,
+  ydoc: Y.Doc,
+  plateJson: unknown,
+) {
+  const discussions = readDocumentReviewDiscussions(ydoc, {
+    presentCommentIds: extractDocumentCommentIds(plateJson),
+  });
 
   if (discussions === null) {
     console.warn(`collab review state skipped, invalid discussions for ${context.documentId}`);
@@ -132,16 +143,118 @@ async function materializeReviewState(db: DocumentStoreClient, context: CollabCo
     });
 }
 
-export function readDocumentReviewDiscussions(ydoc: Y.Doc): DocumentDiscussionList | null {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+export function extractDocumentCommentIds(value: unknown): Set<string> {
+  const ids = new Set<string>();
+
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+
+    if (!isRecord(node)) return;
+
+    Object.keys(node).forEach((key) => {
+      if (key === DOCUMENT_DRAFT_COMMENT_MARK_KEY) return;
+      if (!key.startsWith(DOCUMENT_COMMENT_MARK_PREFIX)) return;
+
+      ids.add(key.slice(DOCUMENT_COMMENT_MARK_PREFIX.length));
+    });
+
+    visit(node.children);
+  };
+
+  visit(value);
+  return ids;
+}
+
+const getString = (map: Y.Map<unknown>, key: string) => {
+  const value = map.get(key);
+  return typeof value === "string" ? value : null;
+};
+
+const getBoolean = (map: Y.Map<unknown>, key: string) => {
+  const value = map.get(key);
+  return typeof value === "boolean" ? value : null;
+};
+
+const getOptionalString = (map: Y.Map<unknown>, key: string) => {
+  const value = map.get(key);
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+};
+
+function readReviewV2Discussions(
+  discussionsById: Y.Map<unknown>,
+  presentCommentIds?: Set<string>,
+): DocumentDiscussionList | null {
+  const discussions: DocumentDiscussionList = [];
+
+  for (const [discussionId, discussionValue] of discussionsById.entries()) {
+    if (presentCommentIds && !presentCommentIds.has(discussionId)) continue;
+    if (!(discussionValue instanceof Y.Map)) return null;
+
+    const commentsById = discussionValue.get(DOCUMENT_DISCUSSION_COMMENTS_BY_ID_KEY);
+    if (!(commentsById instanceof Y.Map)) return null;
+
+    const comments = [];
+    for (const [commentId, commentValue] of commentsById.entries()) {
+      if (!(commentValue instanceof Y.Map)) return null;
+
+      comments.push({
+        id: getString(commentValue, "id") ?? commentId,
+        contentRich: Array.isArray(commentValue.get("contentRich")) ? commentValue.get("contentRich") : [],
+        createdAt: getString(commentValue, "createdAt"),
+        discussionId: getString(commentValue, "discussionId") ?? discussionId,
+        isEdited: getBoolean(commentValue, "isEdited"),
+        updatedAt: getString(commentValue, "updatedAt"),
+        userId: getString(commentValue, "userId"),
+      });
+    }
+
+    const candidate = {
+      id: getString(discussionValue, "id") ?? discussionId,
+      comments: comments.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))),
+      createdAt: getString(discussionValue, "createdAt"),
+      documentContent: getOptionalString(discussionValue, "documentContent"),
+      isResolved: getBoolean(discussionValue, "isResolved"),
+      updatedAt: getString(discussionValue, "updatedAt"),
+      userId: getString(discussionValue, "userId"),
+    };
+    const parsed = documentDiscussionSchema.safeParse(candidate);
+
+    if (!parsed.success) return null;
+    if (parsed.data.comments.length === 0) continue;
+
+    discussions.push(parsed.data);
+  }
+
+  return discussions.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function readDocumentReviewDiscussions(
+  ydoc: Y.Doc,
+  options: { presentCommentIds?: Set<string> } = {},
+): DocumentDiscussionList | null {
   const reviewMap = ydoc.getMap(DOCUMENT_REVIEW_MAP_NAME);
-  const storedDiscussions = reviewMap.get(DOCUMENT_DISCUSSIONS_KEY);
-  const parsed = documentDiscussionListSchema.safeParse(storedDiscussions ?? []);
+  const discussionsById = reviewMap.get(DOCUMENT_DISCUSSIONS_BY_ID_KEY);
+
+  if (discussionsById === undefined) return [];
+
+  if (!(discussionsById instanceof Y.Map)) return null;
+
+  const parsed = documentDiscussionListSchema.safeParse(
+    readReviewV2Discussions(discussionsById, options.presentCommentIds),
+  );
 
   if (parsed.success) {
     return parsed.data;
   }
 
-  return storedDiscussions === undefined ? [] : null;
+  return null;
 }
 
 async function materializeVersion(

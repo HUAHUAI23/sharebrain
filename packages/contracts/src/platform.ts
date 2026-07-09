@@ -268,10 +268,16 @@ export const documentDetailSchema = documentSummarySchema.extend({
 export type DocumentDetail = z.infer<typeof documentDetailSchema>;
 
 export const DOCUMENT_REVIEW_MAP_NAME = "review";
-export const DOCUMENT_DISCUSSIONS_KEY = "discussions";
+export const DOCUMENT_REVIEW_VERSION_KEY = "version";
+export const DOCUMENT_REVIEW_VERSION = 2;
+export const DOCUMENT_DISCUSSIONS_BY_ID_KEY = "discussionsById";
+export const DOCUMENT_DISCUSSION_COMMENTS_BY_ID_KEY = "commentsById";
+export const DOCUMENT_COMMENT_MARK_PREFIX = "comment_";
+export const DOCUMENT_DRAFT_COMMENT_MARK_KEY = "comment_draft";
 export const DOCUMENT_DISCUSSION_LIMITS = {
   commentsPerDiscussion: 500,
   discussionsPerDocument: 1000,
+  readStatesPerRequest: 200,
 } as const;
 
 export const documentDiscussionCommentSchema = z.object({
@@ -280,6 +286,7 @@ export const documentDiscussionCommentSchema = z.object({
   createdAt: isoDateTimeSchema,
   discussionId: z.string().trim().min(1).max(120),
   isEdited: z.boolean(),
+  updatedAt: isoDateTimeSchema,
   userId: uuidSchema,
 });
 export type DocumentDiscussionComment = z.infer<typeof documentDiscussionCommentSchema>;
@@ -290,6 +297,7 @@ export const documentDiscussionSchema = z.object({
   createdAt: isoDateTimeSchema,
   documentContent: z.string().max(2000).optional(),
   isResolved: z.boolean(),
+  updatedAt: isoDateTimeSchema,
   userId: uuidSchema,
 });
 export type DocumentDiscussion = z.infer<typeof documentDiscussionSchema>;
@@ -299,10 +307,41 @@ export const documentDiscussionListSchema = z
   .max(DOCUMENT_DISCUSSION_LIMITS.discussionsPerDocument);
 export type DocumentDiscussionList = z.infer<typeof documentDiscussionListSchema>;
 
+export const documentDiscussionReadStateSchema = z.object({
+  activityKey: z.string().trim().min(1).max(160),
+  discussionId: z.string().trim().min(1).max(120),
+  readAt: isoDateTimeSchema,
+});
+export type DocumentDiscussionReadState = z.infer<typeof documentDiscussionReadStateSchema>;
+
+export const documentDiscussionReadStateListSchema = z
+  .array(documentDiscussionReadStateSchema)
+  .max(DOCUMENT_DISCUSSION_LIMITS.discussionsPerDocument);
+export type DocumentDiscussionReadStateList = z.infer<typeof documentDiscussionReadStateListSchema>;
+
 export const documentDiscussionsResponseSchema = z.object({
   discussions: documentDiscussionListSchema,
+  readStates: documentDiscussionReadStateListSchema,
 });
 export type DocumentDiscussionsResponse = z.infer<typeof documentDiscussionsResponseSchema>;
+
+export const markDocumentDiscussionsReadRequestSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        activityKey: z.string().trim().min(1).max(160),
+        discussionId: z.string().trim().min(1).max(120),
+      }),
+    )
+    .min(1)
+    .max(DOCUMENT_DISCUSSION_LIMITS.readStatesPerRequest),
+});
+export type MarkDocumentDiscussionsReadRequest = z.infer<typeof markDocumentDiscussionsReadRequestSchema>;
+
+export const markDocumentDiscussionsReadResponseSchema = z.object({
+  readStates: documentDiscussionReadStateListSchema,
+});
+export type MarkDocumentDiscussionsReadResponse = z.infer<typeof markDocumentDiscussionsReadResponseSchema>;
 
 export const createDocumentRequestSchema = z.object({
   moduleId: uuidSchema,

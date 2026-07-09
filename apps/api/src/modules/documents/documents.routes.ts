@@ -28,6 +28,13 @@ export function createDocumentsRoutes() {
     return context.json(await service.getDiscussions(context.var.auth, context.req.param("documentId")));
   });
 
+  app.post("/api/documents/:documentId/discussions/read", async (context) => {
+    const service = new DocumentsService(context.var.db);
+    return context.json(
+      await service.markDiscussionsRead(context.var.auth, context.req.param("documentId"), await context.req.json()),
+    );
+  });
+
   app.get("/api/documents/:documentId", async (context) => {
     const service = new DocumentsService(context.var.db);
     return context.json(await service.get(context.var.auth, context.req.param("documentId")));

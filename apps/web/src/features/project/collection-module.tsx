@@ -1,10 +1,11 @@
 import { m } from "@sharebrain/i18n";
 import { NotionCreateRow } from "@sharebrain/ui/components/notion-create-row";
-import { NotionEmpty, NotionIcon, NotionList, NotionListRow } from "@sharebrain/ui/components/notion";
+import { NotionEmpty, NotionList, NotionListRow } from "@sharebrain/ui/components/notion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpenText, FileText } from "lucide-react";
 import { useState } from "react";
 
+import { PageTitle } from "../../components/page-title";
 import { ApiClientError } from "../../lib/api-client";
 import { apiRequest, queryKeys } from "../../lib/api-client";
 import type { DocumentsResponse } from "../workspace/workspace-types";
@@ -37,15 +38,11 @@ export function CollectionModule({ projectId, moduleId, module, onNavigate }: Mo
 
   return (
     <div className="module-page">
-      <header className="page-title">
-        <NotionIcon size="lg">
-          <BookOpenText size={24} />
-        </NotionIcon>
-        <div>
-          <h1>{module?.name ?? m.module_collection_label()}</h1>
-          <p>{m.module_collection_description()}</p>
-        </div>
-      </header>
+      <PageTitle
+        icon={<BookOpenText size={24} />}
+        title={module?.name ?? m.module_collection_label()}
+        description={m.module_collection_description()}
+      />
       <NotionList>
         {(documents.data?.items ?? []).length > 0 ? (
           (documents.data?.items ?? []).map((document) => (

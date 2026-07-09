@@ -1,6 +1,8 @@
 import {
   createDocumentRequestSchema,
   documentDiscussionListSchema,
+  markDocumentDiscussionsReadRequestSchema,
+  markDocumentDiscussionsReadResponseSchema,
   documentDiscussionsResponseSchema,
   extractDocumentInlineMediaIds,
   updateDocumentRequestSchema,
@@ -8,6 +10,7 @@ import {
 } from "@sharebrain/contracts";
 import { syncDocumentInlineMediaUsagesWithClient } from "@sharebrain/db";
 import {
+  documentDiscussionReadStates,
   documentReviewStates,
   documentVersions,
   documents,
@@ -15,7 +18,7 @@ import {
   projectModules,
   projects,
 } from "@sharebrain/db/schema";
-import { and, asc, count, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, sql } from "drizzle-orm";
 
 import { ApiError } from "../../app/api-error";
 import { parseJson } from "../../app/validation";
@@ -26,6 +29,10 @@ import { nextSortKey } from "../shared/sort-key";
 import type { DatabaseClient } from "@sharebrain/db";
 
 const emptyPlateJson = [{ type: "p", children: [{ text: "" }] }];
+
+function toIsoTimestamp(value: Date | string) {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
 
 export class DocumentsService {
   private readonly indexer: IndexerService;
@@ -138,11 +145,95 @@ export class DocumentsService {
       .from(documentReviewStates)
       .where(and(eq(documentReviewStates.tenantId, auth.tenantId), eq(documentReviewStates.documentId, document.id)))
       .limit(1);
+    const readStates = await this.db
+      .select({
+        activityKey: documentDiscussionReadStates.activityKey,
+        discussionId: documentDiscussionReadStates.discussionId,
+        readAt: documentDiscussionReadStates.readAt,
+      })
+      .from(documentDiscussionReadStates)
+      .where(
+        and(
+          eq(documentDiscussionReadStates.tenantId, auth.tenantId),
+          eq(documentDiscussionReadStates.documentId, document.id),
+          eq(documentDiscussionReadStates.userId, auth.userId),
+          isNull(documentDiscussionReadStates.deletedAt),
+        ),
+      );
 
     const parsed = documentDiscussionListSchema.safeParse(reviewState?.discussions ?? []);
 
     return documentDiscussionsResponseSchema.parse({
       discussions: parsed.success ? parsed.data : [],
+      readStates: readStates.map((state) => ({
+        activityKey: state.activityKey,
+        discussionId: state.discussionId,
+        readAt: toIsoTimestamp(state.readAt),
+      })),
+    });
+  }
+
+  async markDiscussionsRead(auth: AuthContext, documentId: string, input: unknown) {
+    const document = await this.ensureDocument(auth, documentId);
+    const payload = parseJson(markDocumentDiscussionsReadRequestSchema, input);
+    const now = new Date();
+    const itemsByDiscussionId = new Map(payload.items.map((item) => [item.discussionId, item]));
+
+    const readStates = await this.db.transaction(async (tx) => {
+      await tx
+        .insert(documentDiscussionReadStates)
+        .values(
+          [...itemsByDiscussionId.values()].map((item) => ({
+            tenantId: auth.tenantId,
+            documentId: document.id,
+            userId: auth.userId,
+            discussionId: item.discussionId,
+            activityKey: item.activityKey,
+            readAt: now,
+            createdBy: auth.userId,
+            updatedBy: auth.userId,
+            createdAt: now,
+            updatedAt: now,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [
+            documentDiscussionReadStates.documentId,
+            documentDiscussionReadStates.userId,
+            documentDiscussionReadStates.discussionId,
+          ],
+          set: {
+            activityKey: sql`excluded.activity_key`,
+            readAt: now,
+            updatedBy: auth.userId,
+            updatedAt: now,
+            deletedAt: null,
+          },
+        });
+
+      return tx
+        .select({
+          activityKey: documentDiscussionReadStates.activityKey,
+          discussionId: documentDiscussionReadStates.discussionId,
+          readAt: documentDiscussionReadStates.readAt,
+        })
+        .from(documentDiscussionReadStates)
+        .where(
+          and(
+            eq(documentDiscussionReadStates.tenantId, auth.tenantId),
+            eq(documentDiscussionReadStates.documentId, document.id),
+            eq(documentDiscussionReadStates.userId, auth.userId),
+            isNull(documentDiscussionReadStates.deletedAt),
+          ),
+        );
+    });
+
+    return markDocumentDiscussionsReadResponseSchema.parse({
+      readStates: readStates.map((state) => ({
+        activityKey: state.activityKey,
+        discussionId: state.discussionId,
+        readAt: toIsoTimestamp(state.readAt),
+      })),
     });
   }
 

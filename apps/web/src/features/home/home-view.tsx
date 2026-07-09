@@ -121,8 +121,8 @@ export function HomeView({ onNavigate }: HomeViewProps) {
                   className="grid min-h-8 grid-cols-[18px_minmax(0,1fr)] items-start gap-2 rounded-md border-0 bg-transparent p-2 text-left hover:bg-accent"
                   key={item.id}
                   onClick={() => {
-                    if (item.documentId && item.projectId) {
-                      onNavigate({ type: "document", projectId: item.projectId, moduleId: "", documentId: item.documentId });
+                    if (item.documentId) {
+                      onNavigate({ type: "document-lookup", documentId: item.documentId });
                     } else if (item.projectId) {
                       onNavigate({ type: "project", projectId: item.projectId });
                     }

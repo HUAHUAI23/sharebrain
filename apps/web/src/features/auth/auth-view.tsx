@@ -39,19 +39,26 @@ export function AuthView() {
   });
 
   return (
-    <main className="auth-shell">
-      <section className="auth-panel" aria-label={isRegister ? m.auth_register_label() : m.auth_login_label()}>
-        <div className="auth-toolbar">
+    <main className="grid min-h-screen place-items-center bg-background p-6 text-foreground">
+      <section
+        className="grid w-full max-w-sm justify-items-start gap-4"
+        aria-label={isRegister ? m.auth_register_label() : m.auth_login_label()}
+      >
+        <div className="flex w-full justify-end">
           <LanguageSwitcher />
         </div>
         <NotionIcon size="md">S</NotionIcon>
-        <header className="auth-title">
-          <h1>{isRegister ? m.auth_register_title() : m.auth_login_title()}</h1>
-          <p>{isRegister ? m.auth_register_hint() : m.auth_login_hint()}</p>
+        <header className="grid gap-1">
+          <h1 className="m-0 text-2xl font-semibold leading-tight tracking-normal">
+            {isRegister ? m.auth_register_title() : m.auth_login_title()}
+          </h1>
+          <p className="m-0 text-muted-foreground text-sm leading-6">
+            {isRegister ? m.auth_register_hint() : m.auth_login_hint()}
+          </p>
         </header>
 
         <form
-          className="auth-form"
+          className="grid w-full gap-2.5"
           onSubmit={(event) => {
             event.preventDefault();
             setError(null);
@@ -59,26 +66,42 @@ export function AuthView() {
           }}
         >
           {isRegister && (
-            <label className="auth-field">
+            <label className="grid gap-1 text-muted-foreground text-xs">
               <span>{m.auth_display_name_label()}</span>
-              <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} required />
+              <Input
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                className="border-border bg-sidebar"
+                required
+              />
             </label>
           )}
-          <label className="auth-field">
+          <label className="grid gap-1 text-muted-foreground text-xs">
             <span>{m.auth_email_label()}</span>
-            <Input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required />
+            <Input
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="border-border bg-sidebar"
+              type="email"
+              required
+            />
           </label>
-          <label className="auth-field">
+          <label className="grid gap-1 text-muted-foreground text-xs">
             <span>{m.auth_password_label()}</span>
             <Input
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              className="border-border bg-sidebar"
               type="password"
               minLength={8}
               required
             />
           </label>
-          {error && <div className="auth-error">{error}</div>}
+          {error && (
+            <div className="rounded-sm bg-destructive/10 px-2 py-1.5 text-destructive text-sm leading-relaxed">
+              {error}
+            </div>
+          )}
           <Button
             type="submit"
             disabled={auth.isPending || !email.trim() || !password.trim() || (isRegister && !displayName.trim())}
@@ -90,7 +113,7 @@ export function AuthView() {
 
         <button
           type="button"
-          className="auth-switch"
+          className="cursor-pointer rounded-sm border-0 bg-transparent px-2 py-1 text-muted-foreground text-sm hover:bg-accent hover:text-foreground"
           onClick={() => {
             setError(null);
             setMode(isRegister ? "login" : "register");

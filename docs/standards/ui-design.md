@@ -38,6 +38,7 @@ UI 参考 Notion 的主设计气质：中性、克制、内容优先、低装饰
 - 固定格式元素要有稳定尺寸，避免 hover 或动态文本导致布局跳动。
 - 侧边栏使用块级列表，不做强分割线；hover 用浅灰块。
 - 页面标题区保留页面图标和轻量工具栏，不使用大面积 header 卡片。
+- 文档编辑页顶部栏应轻量、固定定位、无底部分割线，不参与正文文档流；当前默认只展示左侧导航/标题和右侧协作/更多动作。标题和正文必须共享同一内容列左边线，块手柄所需 gutter 由页面级编辑器布局统一控制。文档标题保持单行输入，按 Enter 后正文第一行出现输入光标；如果正文首行已有内容，则先在正文最前面插入空段落并整体下移原内容。正文首个空段落后面仍有内容时，Backspace/Delete 应能删除该空段落。
 
 ## 组件
 
@@ -52,7 +53,7 @@ UI 参考 Notion 的主设计气质：中性、克制、内容优先、低装饰
 - 图标按钮使用 lucide-react。
 - 块级列表行、页面图标、空态、顶部栏、分段控制等跨页面 Notion 形态使用 `@sharebrain/ui/components/notion` primitives，不在 app 全局 CSS 中重复定义。
 - Notion 风格新建入口使用块级 `+` 行：整行浅灰 hover、无强按钮边框、图标为单色 `Plus`；不能只因标题为空禁用提交，空标题应创建“未命名...”对象或在行内显示错误。
-- 跨页面复用的新建行使用 `@sharebrain/ui/components/notion-create-row`，app CSS 只允许对具体业务布局做少量 `data-slot` 覆盖。
+- 跨页面复用的新建行使用 `@sharebrain/ui/components/notion-create-row`；场景化输入样式优先使用 `inputClassName`，app CSS 只允许对具体业务布局做少量稳定 slot 覆盖。
 - 二元设置用 switch/checkbox。
 - 模式切换用 segmented/tabs。
 - 数值配置用 slider/stepper/input。

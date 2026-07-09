@@ -15,6 +15,7 @@ type NotionCreateRowProps = {
   leadingIcon?: React.ReactNode
   compact?: boolean
   className?: string
+  inputClassName?: string
   children?: React.ReactNode
 }
 
@@ -29,6 +30,7 @@ function NotionCreateRow({
   leadingIcon,
   compact = false,
   className,
+  inputClassName,
   children,
 }: NotionCreateRowProps) {
   function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -71,7 +73,10 @@ function NotionCreateRow({
         aria-label={ariaLabel}
         placeholder={placeholder}
         disabled={isPending}
-        className="h-6 border-transparent bg-transparent px-1 text-sm hover:bg-transparent focus-visible:bg-background"
+        className={cn(
+          "h-6 border-transparent bg-transparent px-1 text-sm hover:bg-transparent focus-visible:bg-background",
+          inputClassName
+        )}
       />
       {hasFields && (
         <div

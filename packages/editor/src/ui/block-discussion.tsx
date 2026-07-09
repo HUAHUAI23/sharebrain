@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { type AnyPluginConfig, type NodeEntry, PathApi } from 'platejs';
 import { useEditorRef, usePluginOption } from 'platejs/react';
+import { m } from '@sharebrain/i18n';
 
 import { Button } from '@sharebrain/ui/components/button';
 import {
@@ -23,7 +24,7 @@ import {
   PopoverTrigger,
 } from '@sharebrain/ui/components/popover';
 import { commentPlugin } from '../kits/comment-kit';
-import type { TDiscussion } from '../kits/discussion-kit';
+import { markEditorDiscussionRead, type TDiscussion } from '../kits/discussion-kit';
 import { useBlockDiscussionItems } from '../lib/block-discussion-index';
 import { suggestionPlugin } from '../kits/suggestion-kit';
 
@@ -226,6 +227,7 @@ const BlockCommentContent = ({ children, element }: PlateElementProps) => {
               <Button
                 variant="ghost"
                 className="!px-1.5 mt-1 ml-1 flex h-6 gap-1 py-0 text-muted-foreground/80 hover:text-muted-foreground/80 data-[active=true]:bg-muted"
+                aria-label={m.editor_comments_open()}
                 data-active={open}
                 contentEditable={false}
               >
@@ -258,6 +260,7 @@ function BlockComment({
   discussion: TDiscussion;
   isLast: boolean;
 }) {
+  const editor = useEditorRef();
   const [editingId, setEditingId] = React.useState<string | null>(null);
 
   return (
@@ -267,10 +270,12 @@ function BlockComment({
           <Comment
             key={comment.id ?? index}
             comment={comment}
+            discussion={discussion}
             discussionLength={discussion.comments.length}
             documentContent={discussion?.documentContent}
             editingId={editingId}
             index={index}
+            onEditorClick={() => markEditorDiscussionRead(editor, discussion)}
             setEditingId={setEditingId}
             showDocumentContent
           />

@@ -31,7 +31,6 @@ import {
 } from 'platejs';
 import {
   Plate,
-  useEditorPlugin,
   useEditorRef,
   usePlateEditor,
   usePluginOption,
@@ -50,9 +49,11 @@ import { cn } from '@sharebrain/ui/lib/utils';
 import { BasicMarksKit } from '../kits/basic-marks-kit';
 import {
   type TDiscussion,
+  canCurrentUserDeleteDiscussion,
+  dispatchEditorDiscussionAction,
   discussionPlugin,
-  setEditorDiscussions,
 } from '../kits/discussion-kit';
+import { nowIso } from '../lib/discussions';
 
 import { Editor, EditorContainer } from './editor';
 
@@ -62,10 +63,25 @@ export type TComment = {
   createdAt: Date | string;
   discussionId: string;
   isEdited: boolean;
+  updatedAt: Date | string;
   userId: string;
 };
 
-const nowIso = () => new Date().toISOString();
+function unsetDiscussionMarks(editor: ReturnType<typeof useEditorRef>, discussionId: string) {
+  const entries = editor
+    .getApi(CommentPlugin)
+    .comment.nodes({ at: [] }) as NodeEntry<TCommentText>[];
+
+  entries.forEach(([node, path]) => {
+    const nodeId = editor.getApi(CommentPlugin).comment.nodeId(node);
+
+    if (nodeId !== discussionId) return;
+
+    editor.tf.unsetNodes([getCommentKey(discussionId)], {
+      at: path,
+    });
+  });
+}
 
 export function Comment(props: {
   comment: TComment;
@@ -76,6 +92,7 @@ export function Comment(props: {
   documentContent?: string | undefined;
   showDocumentContent?: boolean | undefined;
   onEditorClick?: () => void;
+  discussion?: TDiscussion | undefined;
 }) {
   const {
     comment,
@@ -86,62 +103,13 @@ export function Comment(props: {
     setEditingId,
     showDocumentContent = false,
     onEditorClick,
+    discussion,
   } = props;
 
   const editor = useEditorRef();
   const userInfo = usePluginOption(discussionPlugin, 'user', comment.userId);
   const currentUserId = usePluginOption(discussionPlugin, 'currentUserId');
 
-  const resolveDiscussion = async (id: string) => {
-    const updatedDiscussions = editor
-      .getOption(discussionPlugin, 'discussions')
-      .map((discussion) => {
-        if (discussion.id === id) {
-          return { ...discussion, isResolved: true };
-        }
-        return discussion;
-      });
-    setEditorDiscussions(editor, updatedDiscussions);
-  };
-
-  const removeDiscussion = async (id: string) => {
-    const updatedDiscussions = editor
-      .getOption(discussionPlugin, 'discussions')
-      .filter((discussion) => discussion.id !== id);
-    setEditorDiscussions(editor, updatedDiscussions);
-  };
-
-  const updateComment = async (input: {
-    id: string;
-    contentRich: Value;
-    discussionId: string;
-    isEdited: boolean;
-  }) => {
-    const updatedDiscussions = editor
-      .getOption(discussionPlugin, 'discussions')
-      .map((discussion) => {
-        if (discussion.id === input.discussionId) {
-          const updatedComments = discussion.comments.map((comment) => {
-            if (comment.id === input.id) {
-              return {
-                ...comment,
-                contentRich: input.contentRich,
-                isEdited: true,
-                updatedAt: new Date(),
-              };
-            }
-            return comment;
-          });
-          return { ...discussion, comments: updatedComments };
-        }
-        return discussion;
-      });
-    setEditorDiscussions(editor, updatedDiscussions);
-  };
-
-  const { tf } = useEditorPlugin(CommentPlugin);
-
-  // Replace to your own backend or refer to potion
   const isMyComment = currentUserId === comment.userId;
 
   const initialValue = comment.contentRich;
@@ -163,23 +131,30 @@ export function Comment(props: {
   };
 
   const onSave = () => {
-    void updateComment({
-      id: comment.id,
+    dispatchEditorDiscussionAction(editor, {
+      commentId: comment.id,
       contentRich: commentEditor.children,
       discussionId: comment.discussionId,
-      isEdited: true,
+      updatedAt: nowIso(),
+      type: 'updateComment',
     });
     setEditingId(null);
   };
 
   const onResolveComment = () => {
-    void resolveDiscussion(comment.discussionId);
-    tf.comment.unsetMark({ id: comment.discussionId });
+    dispatchEditorDiscussionAction(editor, {
+      discussionId: comment.discussionId,
+      updatedAt: nowIso(),
+      type: 'resolveThread',
+    });
+    unsetDiscussionMarks(editor, comment.discussionId);
   };
 
   const isFirst = index === 0;
   const isLast = index === discussionLength - 1;
   const isEditing = editingId && editingId === comment.id;
+  const canDeleteThread =
+    !!discussion && canCurrentUserDeleteDiscussion(editor, discussion);
 
   const [hovering, setHovering] = React.useState(false);
   const [dropdownOpen, setDropdownOpen] = React.useState(false);
@@ -195,7 +170,6 @@ export function Comment(props: {
           <AvatarFallback>{userInfo?.name?.[0]}</AvatarFallback>
         </Avatar>
         <h4 className="mx-2 font-semibold text-sm leading-none">
-          {/* Replace to your own backend or refer to potion */}
           {userInfo?.name}
         </h4>
 
@@ -206,12 +180,14 @@ export function Comment(props: {
           {comment.isEdited && <span>(edited)</span>}
         </div>
 
-        {isMyComment && (hovering || dropdownOpen) && (
+        {(isMyComment || (isFirst && canDeleteThread)) &&
+          (hovering || dropdownOpen) && (
           <div className="absolute top-0 right-0 flex space-x-1">
-            {index === 0 && (
+            {index === 0 && canDeleteThread && (
               <Button
                 variant="ghost"
                 className="h-6 p-1 text-muted-foreground"
+                aria-label={m.editor_comment_resolve_thread()}
                 onClick={onResolveComment}
                 type="button"
               >
@@ -220,16 +196,20 @@ export function Comment(props: {
             )}
 
             <CommentMoreDropdown
+              canDeleteThread={isFirst && canDeleteThread}
+              canEditComment={isMyComment}
+              deleteRemovesThread={discussionLength === 1}
               onCloseAutoFocus={() => {
                 setTimeout(() => {
                   commentEditor.tf.focus({ edge: 'endEditor' });
                 }, 0);
               }}
-              onRemoveComment={() => {
-                if (discussionLength === 1) {
-                  tf.comment.unsetMark({ id: comment.discussionId });
-                  void removeDiscussion(comment.discussionId);
-                }
+              onDeleteThread={() => {
+                unsetDiscussionMarks(editor, comment.discussionId);
+                dispatchEditorDiscussionAction(editor, {
+                  discussionId: comment.discussionId,
+                  type: 'deleteThread',
+                });
               }}
               comment={comment}
               dropdownOpen={dropdownOpen}
@@ -237,7 +217,7 @@ export function Comment(props: {
               setEditingId={setEditingId}
             />
           </div>
-        )}
+          )}
       </div>
 
       {isFirst && showDocumentContent && (
@@ -268,10 +248,12 @@ export function Comment(props: {
                   size="icon"
                   variant="ghost"
                   className="size-[28px]"
+                  aria-label={m.editor_comment_cancel_edit()}
                   onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                     e.stopPropagation();
                     void onCancel();
                   }}
+                  type="button"
                 >
                   <div className="flex size-5 shrink-0 items-center justify-center rounded-[50%] bg-primary/40">
                     <XIcon className="size-3 stroke-[3px] text-background" />
@@ -281,10 +263,12 @@ export function Comment(props: {
                 <Button
                   size="icon"
                   variant="ghost"
+                  aria-label={m.editor_comment_save_edit()}
                   onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                     e.stopPropagation();
                     void onSave();
                   }}
+                  type="button"
                 >
                   <div className="flex size-5 shrink-0 items-center justify-center rounded-[50%] bg-brand">
                     <CheckIcon className="size-3 stroke-[3px] text-background" />
@@ -300,20 +284,26 @@ export function Comment(props: {
 }
 
 function CommentMoreDropdown(props: {
+  canDeleteThread: boolean;
+  canEditComment: boolean;
   comment: TComment;
+  deleteRemovesThread: boolean;
   dropdownOpen: boolean;
   setDropdownOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setEditingId: React.Dispatch<React.SetStateAction<string | null>>;
   onCloseAutoFocus?: () => void;
-  onRemoveComment?: () => void;
+  onDeleteThread?: () => void;
 }) {
   const {
+    canDeleteThread,
+    canEditComment,
     comment,
+    deleteRemovesThread,
     dropdownOpen,
     setDropdownOpen,
     setEditingId,
     onCloseAutoFocus,
-    onRemoveComment,
+    onDeleteThread,
   } = props;
 
   const editor = useEditorRef();
@@ -321,43 +311,19 @@ function CommentMoreDropdown(props: {
   const selectedEditCommentRef = React.useRef<boolean>(false);
 
   const onDeleteComment = React.useCallback(() => {
-    if (!comment.id)
-      return alert('You are operating too quickly, please try again later.');
+    if (deleteRemovesThread) {
+      unsetDiscussionMarks(editor, comment.discussionId);
+    }
 
-    // Find and update the discussion
-    const updatedDiscussions = editor
-      .getOption(discussionPlugin, 'discussions')
-      .map((discussion) => {
-        if (discussion.id !== comment.discussionId) {
-          return discussion;
-        }
-
-        const commentIndex = discussion.comments.findIndex(
-          (c) => c.id === comment.id
-        );
-        if (commentIndex === -1) {
-          return discussion;
-        }
-
-        return {
-          ...discussion,
-          comments: [
-            ...discussion.comments.slice(0, commentIndex),
-            ...discussion.comments.slice(commentIndex + 1),
-          ],
-        };
-      });
-
-    // Save back to session storage
-    setEditorDiscussions(editor, updatedDiscussions);
-    onRemoveComment?.();
-  }, [comment.discussionId, comment.id, editor, onRemoveComment]);
+    dispatchEditorDiscussionAction(editor, {
+      commentId: comment.id,
+      discussionId: comment.discussionId,
+      type: 'deleteComment',
+    });
+  }, [comment.discussionId, comment.id, deleteRemovesThread, editor]);
 
   const onEditComment = React.useCallback(() => {
     selectedEditCommentRef.current = true;
-
-    if (!comment.id)
-      return alert('You are operating too quickly, please try again later.');
 
     setEditingId(comment.id);
   }, [comment.id, setEditingId]);
@@ -369,7 +335,12 @@ function CommentMoreDropdown(props: {
       modal={false}
     >
       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-        <Button variant="ghost" className={cn('h-6 p-1 text-muted-foreground')}>
+        <Button
+          variant="ghost"
+          className={cn('h-6 p-1 text-muted-foreground')}
+          aria-label={m.editor_comment_actions()}
+          type="button"
+        >
           <MoreHorizontalIcon className="size-4" />
         </Button>
       </DropdownMenuTrigger>
@@ -385,14 +356,24 @@ function CommentMoreDropdown(props: {
         }}
       >
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={onEditComment}>
-            <PencilIcon className="size-4" />
-            {m.editor_comment_edit()}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onDeleteComment}>
-            <TrashIcon className="size-4" />
-            {m.editor_comment_delete()}
-          </DropdownMenuItem>
+          {canEditComment && (
+            <>
+              <DropdownMenuItem onClick={onEditComment}>
+                <PencilIcon className="size-4" />
+                {m.editor_comment_edit()}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onDeleteComment}>
+                <TrashIcon className="size-4" />
+                {m.editor_comment_delete()}
+              </DropdownMenuItem>
+            </>
+          )}
+          {canDeleteThread && (
+            <DropdownMenuItem onClick={onDeleteThread}>
+              <TrashIcon className="size-4" />
+              {m.editor_comment_delete_thread()}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -401,7 +382,7 @@ function CommentMoreDropdown(props: {
 
 const useCommentEditor = (
   options: Omit<CreatePlateEditorOptions, 'plugins'> = {},
-  deps: any[] = []
+  deps: React.DependencyList = []
 ) => {
   const commentEditor = usePlateEditor(
     {
@@ -454,58 +435,52 @@ export function CommentCreateForm({
     if (!commentValue) return;
 
     commentEditor.tf.reset();
+    const createdAt = nowIso();
 
     if (discussionId) {
-      // Get existing discussion
       const discussion = discussions.find((d) => d.id === discussionId);
       if (!discussion) {
-        // Mock creating suggestion
         const newDiscussion: TDiscussion = {
           id: discussionId,
           comments: [
             {
               id: nanoid(),
               contentRich: commentValue,
-              createdAt: nowIso(),
+              createdAt,
               discussionId,
               isEdited: false,
+              updatedAt: createdAt,
               userId: editor.getOption(discussionPlugin, 'currentUserId'),
             },
           ],
-          createdAt: nowIso(),
+          createdAt,
           isResolved: false,
+          updatedAt: createdAt,
           userId: editor.getOption(discussionPlugin, 'currentUserId'),
         };
 
-        setEditorDiscussions(editor, [
-          ...discussions,
-          newDiscussion,
-        ]);
+        dispatchEditorDiscussionAction(editor, {
+          discussion: newDiscussion,
+          type: 'createThread',
+        });
         return;
       }
 
-      // Create reply comment
       const comment: TComment = {
         id: nanoid(),
         contentRich: commentValue,
-        createdAt: nowIso(),
+        createdAt,
         discussionId,
         isEdited: false,
+        updatedAt: createdAt,
         userId: editor.getOption(discussionPlugin, 'currentUserId'),
       };
 
-      // Add reply to discussion comments
-      const updatedDiscussion = {
-        ...discussion,
-        comments: [...discussion.comments, comment],
-      };
-
-      // Filter out old discussion and add updated one
-      const updatedDiscussions = discussions
-        .filter((d) => d.id !== discussionId)
-        .concat(updatedDiscussion);
-
-      setEditorDiscussions(editor, updatedDiscussions);
+      dispatchEditorDiscussionAction(editor, {
+        comment,
+        discussionId,
+        type: 'addComment',
+      });
 
       return;
     }
@@ -521,29 +496,30 @@ export function CommentCreateForm({
       .join('');
 
     const _discussionId = nanoid();
-    // Mock creating new discussion
     const newDiscussion: TDiscussion = {
       id: _discussionId,
       comments: [
         {
           id: nanoid(),
           contentRich: commentValue,
-          createdAt: nowIso(),
+          createdAt,
           discussionId: _discussionId,
           isEdited: false,
+          updatedAt: createdAt,
           userId: editor.getOption(discussionPlugin, 'currentUserId'),
         },
       ],
-      createdAt: nowIso(),
+      createdAt,
       documentContent,
       isResolved: false,
+      updatedAt: createdAt,
       userId: editor.getOption(discussionPlugin, 'currentUserId'),
     };
 
-    setEditorDiscussions(editor, [
-      ...discussions,
-      newDiscussion,
-    ]);
+    dispatchEditorDiscussionAction(editor, {
+      discussion: newDiscussion,
+      type: 'createThread',
+    });
 
     const id = newDiscussion.id;
 
@@ -561,7 +537,6 @@ export function CommentCreateForm({
   return (
     <div className={cn('flex w-full', className)}>
       <div className="mt-2 mr-1 shrink-0">
-        {/* Replace to your own backend or refer to potion */}
         <Avatar className="size-5">
           <AvatarImage alt={userInfo?.name} src={userInfo?.avatarUrl} />
           <AvatarFallback>{userInfo?.name?.[0]}</AvatarFallback>
@@ -594,11 +569,13 @@ export function CommentCreateForm({
               size="icon"
               variant="ghost"
               className="absolute right-0.5 bottom-0.5 ml-auto size-6 shrink-0"
+              aria-label={m.editor_comment_send()}
               disabled={commentContent.trim().length === 0}
               onClick={(e) => {
                 e.stopPropagation();
                 onAddComment();
               }}
+              type="button"
             >
               <div className="flex size-6 items-center justify-center rounded-full">
                 <ArrowUpIcon />

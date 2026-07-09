@@ -9,18 +9,22 @@ import {
   EditorMoreMenu,
   EditorUploadProvider,
   RemoteCursorOverlay,
+  mergeDiscussionReadStates,
+  setEditorDiscussionReadStates,
+  type DiscussionReadItem,
   type TDiscussion,
+  type TDiscussionReadState,
 } from "@sharebrain/editor";
-import type { DocumentDiscussionsResponse } from "@sharebrain/contracts";
+import type { DocumentDiscussionsResponse, MarkDocumentDiscussionsReadResponse } from "@sharebrain/contracts";
 import { m } from "@sharebrain/i18n";
 import { Button } from "@sharebrain/ui/components/button";
 import { Input } from "@sharebrain/ui/components/input";
 import { NotionEmpty, NotionToolbar } from "@sharebrain/ui/components/notion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, FileText } from "lucide-react";
-import type { Value } from "platejs";
+import { ArrowLeft } from "lucide-react";
+import { KEYS, type TElement, type Value } from "platejs";
 import { Plate, usePlateEditor } from "platejs/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import { apiRequest, queryKeys } from "../../lib/api-client";
 import { runtimeEnv } from "../../lib/runtime-env";
@@ -66,6 +70,18 @@ function toPlateValue(value: unknown): Value {
   return elements.length > 0 ? elements : emptyPlateValue;
 }
 
+function toDocumentReadStates(readStates: TDiscussionReadState[]): DocumentDiscussionsResponse["readStates"] {
+  return readStates.map((state) => ({
+    activityKey: state.activityKey,
+    discussionId: state.discussionId,
+    readAt: state.readAt instanceof Date ? state.readAt.toISOString() : state.readAt,
+  }));
+}
+
+function normalizeDocumentTitleInput(value: string) {
+  return value.replace(/[\r\n]+/g, " ");
+}
+
 type EditorShellProps = {
   projectId: string;
   moduleId: string;
@@ -96,6 +112,10 @@ export function EditorShell({ projectId, moduleId, documentId, recordId, onNavig
     () => toEditorDiscussions(discussions.data?.discussions ?? []),
     [discussions.data?.discussions],
   );
+  const initialReadStates = useMemo(
+    () => discussions.data?.readStates ?? [],
+    [discussions.data?.readStates],
+  );
 
   if (!me.data || !document.data) {
     return (
@@ -112,9 +132,11 @@ export function EditorShell({ projectId, moduleId, documentId, recordId, onNavig
       moduleId={moduleId}
       documentId={documentId}
       {...(recordId ? { recordId } : {})}
+      role={me.data.role}
       user={me.data.user}
       initialDocument={document.data}
       initialDiscussions={initialDiscussions}
+      initialReadStates={initialReadStates}
       onNavigate={onNavigate}
     />
   );
@@ -125,9 +147,11 @@ type DocumentEditorProps = {
   moduleId: string;
   documentId: string;
   recordId?: string;
+  role: MeResponse["role"];
   user: MeResponse["user"];
   initialDocument: DocumentResponse;
   initialDiscussions: TDiscussion[];
+  initialReadStates: TDiscussionReadState[];
   onNavigate: (view: WorkspaceView) => void;
 };
 
@@ -136,13 +160,15 @@ function DocumentEditor({
   moduleId,
   documentId,
   recordId,
+  role,
   user,
   initialDocument,
   initialDiscussions,
+  initialReadStates,
   onNavigate,
 }: DocumentEditorProps) {
   const queryClient = useQueryClient();
-  const [title, setTitle] = useState(initialDocument.title);
+  const [title, setTitle] = useState(normalizeDocumentTitleInput(initialDocument.title));
   const savedTitleRef = useRef(initialDocument.title);
   const uploadEditorFile = useMemo(() => createEditorUploadHandler({ documentId }), [documentId]);
 
@@ -182,12 +208,80 @@ function DocumentEditor({
     editor.children = [{ type: "p", children: [{ text: "" }] }];
   }
 
+  const documentDiscussionsQueryKey = queryKeys.documentDiscussions(documentId);
+  const markDiscussionsRead = useMutation({
+    mutationFn: (items: DiscussionReadItem[]) =>
+      apiRequest<MarkDocumentDiscussionsReadResponse>(`/api/documents/${documentId}/discussions/read`, {
+        method: "POST",
+        body: { items },
+      }),
+    async onMutate(items) {
+      await queryClient.cancelQueries({ queryKey: documentDiscussionsQueryKey });
+
+      const previous =
+        queryClient.getQueryData<DocumentDiscussionsResponse>(documentDiscussionsQueryKey);
+      const optimisticReadStates = toDocumentReadStates(
+        mergeDiscussionReadStates(previous?.readStates ?? initialReadStates, items),
+      );
+
+      queryClient.setQueryData<DocumentDiscussionsResponse>(
+        documentDiscussionsQueryKey,
+        (current) =>
+          current
+            ? {
+                ...current,
+                readStates: optimisticReadStates,
+              }
+            : current,
+      );
+      setEditorDiscussionReadStates(editor, optimisticReadStates);
+
+      return { previous };
+    },
+    onError(_error, _items, context) {
+      if (!context?.previous) return;
+
+      queryClient.setQueryData<DocumentDiscussionsResponse>(
+        documentDiscussionsQueryKey,
+        context.previous,
+      );
+      setEditorDiscussionReadStates(editor, context.previous.readStates);
+    },
+    onSuccess(response) {
+      queryClient.setQueryData<DocumentDiscussionsResponse>(
+        documentDiscussionsQueryKey,
+        (current) =>
+          current
+            ? {
+                ...current,
+                readStates: response.readStates,
+              }
+            : current,
+      );
+      setEditorDiscussionReadStates(editor, response.readStates);
+    },
+  });
+  const markDiscussionsReadMutate = markDiscussionsRead.mutate;
+
   useEffect(() => {
     editor.setOption(discussionPlugin, "currentUserId", user.id);
     editor.setOption(discussionPlugin, "users", {
       [user.id]: { id: user.id, name: user.displayName },
     });
-  }, [editor, user.id, user.displayName]);
+    editor.setOption(discussionPlugin, "readStates", initialReadStates);
+    editor.setOption(discussionPlugin, "canDeleteDiscussion", ({ currentUserId, discussion }) =>
+      discussion.userId === currentUserId || role === "admin",
+    );
+    editor.setOption(discussionPlugin, "onDiscussionRead", (items) => {
+      if (items.length === 0) return;
+      markDiscussionsReadMutate(items);
+    });
+
+    return () => {
+      editor.setOption(discussionPlugin, "canDeleteDiscussion", null);
+      editor.setOption(discussionPlugin, "onDiscussionRead", null);
+    };
+  }, [editor, initialReadStates, markDiscussionsReadMutate, role, user.id, user.displayName]);
 
   useEditorDiscussionsBridge(editor, initialDiscussions);
 
@@ -265,6 +359,50 @@ function DocumentEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title]);
 
+  const handleTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+
+    event.preventDefault();
+
+    const firstNode = editor.children[0];
+
+    if (firstNode && editor.api.isEmpty(firstNode as TElement)) {
+      const start = editor.api.start([0]);
+
+      if (start) {
+        editor.tf.select(start);
+      }
+    } else {
+      editor.tf.insertNodes(editor.api.create.block({ type: KEYS.p }), {
+        at: [0],
+        select: true,
+      });
+    }
+
+    editor.tf.focus();
+  };
+
+  const handleEditorKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!["Backspace", "Delete", "Clear"].includes(event.key)) return;
+    if (!editor.selection || !editor.api.isCollapsed()) return;
+    if (editor.selection.focus.path[0] !== 0 || editor.children.length <= 1) return;
+
+    const firstNode = editor.children[0];
+
+    if (!firstNode || !editor.api.isEmpty(firstNode as TElement)) return;
+
+    event.preventDefault();
+    editor.tf.removeNodes({ at: [0] });
+
+    const start = editor.api.start([0]);
+
+    if (start) {
+      editor.tf.select(start);
+    }
+
+    editor.tf.focus();
+  };
+
   return (
     <main className="editor-page">
       <EditorUploadProvider
@@ -274,44 +412,50 @@ function DocumentEditor({
         }}
       >
         <Plate editor={editor}>
-        <NotionToolbar className="grid grid-cols-[auto_auto_1fr_auto]">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={m.common_back_project()}
-            onClick={() =>
-              onNavigate({
-                type: "project",
-                projectId,
-                moduleId,
-                ...(recordId ? { recordId } : {}),
-              })
-            }
-          >
-            <ArrowLeft size={16} />
-          </Button>
-          <FileText size={16} />
-          <span>{title || m.common_untitled()}</span>
-          <span className="flex items-center justify-end gap-1">
-            <CommentsPopoverButton />
-            <EditorMoreMenu fileName={title || "document"} />
-          </span>
-        </NotionToolbar>
-        <article className="markdown-editor">
-          <Input
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            aria-label={m.module_document_title_aria()}
-            className="title-input"
-          />
-          <EditorContainer className="min-h-[70vh]">
-            <Editor
-              variant="fullWidth"
-              className="px-16 pt-1 pb-40 max-sm:px-6"
-              placeholder={m.document_editor_placeholder()}
+          <NotionToolbar className="fixed inset-x-0 top-0 z-30 grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-0 bg-background/95 px-5 py-2 text-sm shadow-none backdrop-blur-md max-sm:min-h-12 max-sm:px-3 max-sm:py-1.5">
+            <div className="flex min-w-0 items-center gap-1 justify-self-start">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-foreground"
+                aria-label={m.common_back_project()}
+                onClick={() =>
+                  onNavigate({
+                    type: "project",
+                    projectId,
+                    moduleId,
+                    ...(recordId ? { recordId } : {}),
+                  })
+                }
+              >
+                <ArrowLeft size={16} />
+              </Button>
+              <span className="min-w-0 max-w-[260px] truncate text-[13px] font-medium text-muted-foreground leading-tight max-sm:max-w-[42vw]">
+                {title || m.common_untitled()}
+              </span>
+            </div>
+            <div className="flex min-w-0 items-center justify-self-end gap-px">
+              <CommentsPopoverButton />
+              <EditorMoreMenu fileName={title || "document"} />
+            </div>
+          </NotionToolbar>
+          <article className="markdown-editor">
+            <Input
+              value={title}
+              onChange={(event) => setTitle(normalizeDocumentTitleInput(event.target.value))}
+              onKeyDown={handleTitleKeyDown}
+              aria-label={m.module_document_title_aria()}
+              className="title-input rounded-none hover:bg-transparent focus-visible:border-transparent focus-visible:bg-transparent focus-visible:ring-0"
             />
-          </EditorContainer>
-        </article>
+            <EditorContainer className="min-h-[70vh]">
+              <Editor
+                variant="none"
+                className="min-h-[56vh] w-full px-[var(--editor-content-gutter)] pt-0 pb-36 text-base leading-7 text-foreground"
+                placeholder={m.document_editor_placeholder()}
+                onKeyDown={handleEditorKeyDown}
+              />
+            </EditorContainer>
+          </article>
         </Plate>
       </EditorUploadProvider>
     </main>

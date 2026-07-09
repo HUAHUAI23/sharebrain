@@ -1,85 +1,9 @@
 .home-shell,
-.auth-shell,
 .template-shell,
 .project-shell,
 .editor-page {
   min-height: 100vh;
   background: var(--background);
-  color: var(--foreground);
-}
-
-.auth-shell {
-  display: grid;
-  place-items: center;
-  padding: 24px;
-}
-
-.auth-panel {
-  display: grid;
-  justify-items: start;
-  gap: 18px;
-  width: min(360px, calc(100vw - 32px));
-}
-
-.auth-title {
-  display: grid;
-  gap: 5px;
-}
-
-.auth-title h1 {
-  margin: 0;
-  font-size: 26px;
-  line-height: 1.16;
-  letter-spacing: 0;
-}
-
-.auth-title p {
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.auth-form {
-  display: grid;
-  gap: 10px;
-  width: 100%;
-}
-
-.auth-field {
-  display: grid;
-  gap: 5px;
-  color: var(--muted-foreground);
-  font-size: 12px;
-}
-
-.auth-field input {
-  background: var(--sidebar);
-  border-color: var(--border);
-}
-
-.auth-error {
-  border-radius: 5px;
-  background: color-mix(in oklab, var(--destructive) 8%, var(--background));
-  color: var(--destructive);
-  font-size: 13px;
-  line-height: 1.45;
-  padding: 7px 8px;
-}
-
-.auth-switch {
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  padding: 5px 7px;
-}
-
-.auth-switch:hover {
-  background: var(--accent);
   color: var(--foreground);
 }
 
@@ -96,12 +20,6 @@
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.auth-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  width: 100%;
 }
 
 .avatar-upload input {
@@ -124,7 +42,6 @@
 }
 
 .home-heading h1,
-.page-title h1,
 .timeline-item h2 {
   margin: 0;
   letter-spacing: 0;
@@ -231,6 +148,10 @@
   min-width: 0;
 }
 
+.editor-page {
+  position: relative;
+}
+
 .module-page,
 .template-page,
 .markdown-editor {
@@ -239,45 +160,20 @@
   padding: 72px 20px;
 }
 
+.markdown-editor {
+  --editor-content-gutter: 56px;
+  --editor-content-width: 744px;
+  width: min(
+    calc(var(--editor-content-width) + var(--editor-content-gutter) * 2),
+    calc(100vw - 64px)
+  );
+  display: grid;
+  padding: 144px 16px 104px;
+  gap: 16px;
+}
+
 .template-page {
   width: min(720px, calc(100vw - 32px));
-}
-
-.page-title {
-  display: grid;
-  gap: 14px;
-  margin-bottom: 26px;
-}
-
-.page-title h1 {
-  color: var(--foreground);
-  font-size: 34px;
-  font-weight: 700;
-  line-height: 1.15;
-}
-
-.page-title p {
-  margin: 6px 0 0;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 1.35;
-  white-space: normal;
-}
-
-.record-composer {
-  margin: 0 -4px 24px;
-}
-
-.record-composer > button {
-  margin-top: 3px;
-}
-
-.record-composer > input {
-  font-weight: 600;
-}
-
-.record-composer:focus-within {
-  background: var(--muted);
 }
 
 .timeline-list {
@@ -349,44 +245,18 @@
   white-space: nowrap;
 }
 
-.template-composer {
-  display: grid;
-  gap: 8px;
-  margin-top: 22px;
-}
-
-.template-composer [data-slot="notion-create-row"] {
-  align-items: start;
-}
-
-.template-composer [data-slot="notion-create-row-fields"] input {
-  height: 26px;
-  color: var(--muted-foreground);
-  font-size: 12px;
-}
-
-.markdown-editor {
-  display: grid;
-  gap: 14px;
-}
-
 .title-input {
   height: auto;
+  min-height: 56px;
   border: 0;
   background: transparent;
   box-shadow: none;
   color: var(--foreground);
-  font-size: 38px;
+  font-size: 42px;
   font-weight: 700;
-  line-height: 1.15;
-  /* 与编辑器内容区左侧留白对齐（拖拽手柄 gutter 占用 64px） */
-  padding: 0 64px;
-}
-
-@media (max-width: 640px) {
-  .title-input {
-    padding: 0 24px;
-  }
+  line-height: 1.12;
+  /* 标题和 Plate 正文共享同一 gutter，给块手柄保留负偏移空间。 */
+  padding: 0 var(--editor-content-gutter);
 }
 
 @media (max-width: 860px) {
@@ -424,6 +294,19 @@
     padding: 34px 16px;
   }
 
+  .markdown-editor {
+    --editor-content-gutter: 48px;
+    padding-top: 120px;
+    padding-bottom: 80px;
+  }
+}
+
+@media (max-width: 640px) {
+  .markdown-editor {
+    --editor-content-gutter: 24px;
+    width: min(100vw, 760px);
+    padding-top: 96px;
+  }
 }
 
 @media (max-width: 560px) {
@@ -431,8 +314,8 @@
     display: none;
   }
 
-  .page-title h1,
   .title-input {
-    font-size: 30px;
+    min-height: 44px;
+    font-size: 32px;
   }
 }

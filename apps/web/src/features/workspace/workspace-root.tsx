@@ -1,20 +1,12 @@
 import { m } from "@sharebrain/i18n";
 import { NotionEmpty } from "@sharebrain/ui/components/notion";
-import { lazy, Suspense, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Outlet } from "@tanstack/react-router";
 import { ApiClientError, apiRequest, queryKeys } from "../../lib/api-client";
 import { AuthView } from "../auth/auth-view";
-import { HomeView } from "../home/home-view";
-import { ModuleTemplatesView } from "../modules/module-templates-view";
-import { ProjectView } from "../project/project-view";
-import type { MeResponse, WorkspaceView } from "./workspace-types";
-
-const EditorShell = lazy(() =>
-  import("../editor/editor-shell").then((module) => ({ default: module.EditorShell })),
-);
+import type { MeResponse } from "./workspace-types";
 
 export function WorkspaceRoot() {
-  const [view, setView] = useState<WorkspaceView>({ type: "home" });
   const me = useQuery({
     queryKey: queryKeys.me,
     queryFn: () => apiRequest<MeResponse>("/api/me"),
@@ -52,39 +44,5 @@ export function WorkspaceRoot() {
     );
   }
 
-  if (view.type === "project") {
-    return (
-      <ProjectView
-        projectId={view.projectId}
-        {...(view.moduleId ? { activeModuleId: view.moduleId } : {})}
-        onNavigate={setView}
-      />
-    );
-  }
-
-  if (view.type === "module-templates") {
-    return <ModuleTemplatesView onNavigate={setView} />;
-  }
-
-  if (view.type === "document") {
-    return (
-      <Suspense
-        fallback={
-          <main className="min-h-screen bg-background">
-            <NotionEmpty className="p-20">{m.common_loading_document()}</NotionEmpty>
-          </main>
-        }
-      >
-        <EditorShell
-          projectId={view.projectId}
-          moduleId={view.moduleId}
-          documentId={view.documentId}
-          {...(view.recordId ? { recordId: view.recordId } : {})}
-          onNavigate={setView}
-        />
-      </Suspense>
-    );
-  }
-
-  return <HomeView onNavigate={setView} />;
+  return <Outlet />;
 }

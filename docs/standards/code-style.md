@@ -34,6 +34,8 @@
 - Tailwind v4 CSS 变量值使用括号简写，例如 `ring-(--ring-soft)`、`border-(--color-border)`、`bg-(--color-bg)`。
 - 允许保留 shadcn/Radix 组件生成的 CSS 变量、`calc()`、transform origin、available height 等 arbitrary value；不要为了“消灭方括号”改坏组件定位。
 - 业务 feature 中重复出现的 arbitrary value 应抽为 UI primitive、`@theme` token 或局部 CSS 类。
+- 单组件样式优先写在组件 `className`；`apps/web/src/styles/app.css` 只承载页面壳、跨组件布局、复杂伪元素、搜索浮层、编辑器排版等需要集中协调的样式。
+- 业务侧不要通过全局 CSS 子选择器覆盖 UI primitive 内部结构；确实需要场景化调整时，优先让 primitive 暴露稳定的 `className`/slot className prop。
 - 禁止负字距和 viewport 字号作为默认 UI 方案。
 
 ## 错误处理

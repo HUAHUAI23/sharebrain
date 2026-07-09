@@ -457,6 +457,35 @@ export const documentReviewStates = pgTable(
   (table) => [index("idx_document_review_states_tenant").on(table.tenantId)],
 );
 
+export const documentDiscussionReadStates = pgTable(
+  "document_discussion_read_states",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    discussionId: text("discussion_id").notNull(),
+    activityKey: text("activity_key").notNull(),
+    readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_document_discussion_read_states_unique").on(
+      table.documentId,
+      table.userId,
+      table.discussionId,
+    ),
+    index("idx_document_discussion_read_states_tenant").on(table.tenantId),
+    index("idx_document_discussion_read_states_user").on(table.userId),
+  ],
+);
+
 export const documentBlocks = pgTable(
   "document_blocks",
   {

@@ -1,7 +1,7 @@
 import * as React from 'react';
 
 import { CommentPlugin } from '@platejs/comment/react';
-import { MessageSquareTextIcon, SearchIcon } from 'lucide-react';
+import { CheckCheckIcon, MessageSquareTextIcon, SearchIcon } from 'lucide-react';
 import { m } from '@sharebrain/i18n';
 import type { NodeEntry, TCommentText, Value } from 'platejs';
 import { NodeApi } from 'platejs';
@@ -21,7 +21,17 @@ import {
 import { cn } from '@sharebrain/ui/lib/utils';
 
 import { commentPlugin } from '../kits/comment-kit';
-import { type TDiscussion, discussionPlugin } from '../kits/discussion-kit';
+import {
+  type TDiscussion,
+  discussionPlugin,
+  markEditorDiscussionRead,
+  setEditorDiscussionReadStates,
+} from '../kits/discussion-kit';
+import {
+  getDiscussionReadItem,
+  isDiscussionUnread,
+  mergeDiscussionReadStates,
+} from '../lib/discussions';
 import { formatCommentDate } from './comment';
 
 const richToText = (value: Value) =>
@@ -35,6 +45,8 @@ const richToText = (value: Value) =>
 export function CommentsPopoverButton() {
   const editor = useEditorRef();
   const discussions = usePluginOption(discussionPlugin, 'discussions');
+  const readStates = usePluginOption(discussionPlugin, 'readStates');
+  const currentUserId = usePluginOption(discussionPlugin, 'currentUserId');
   const version = useEditorVersion() ?? 0;
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState('');
@@ -60,6 +72,25 @@ export function CommentsPopoverButton() {
           new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       );
   }, [discussions, editor, version]);
+
+  const readStatesByDiscussionId = React.useMemo(
+    () => new Map(readStates.map((state) => [state.discussionId, state])),
+    [readStates]
+  );
+
+  const unreadDiscussions = React.useMemo(
+    () =>
+      activeDiscussions.filter((discussion) =>
+        isDiscussionUnread({
+          currentUserId,
+          discussion,
+          readState: readStatesByDiscussionId.get(discussion.id),
+        })
+      ),
+    [activeDiscussions, currentUserId, readStatesByDiscussionId]
+  );
+
+  const unreadCount = unreadDiscussions.length;
 
   const filteredDiscussions = React.useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -95,6 +126,7 @@ export function CommentsPopoverButton() {
 
       if (!entry) return;
 
+      markEditorDiscussionRead(editor, discussion);
       setOpen(false);
 
       // 等卡片关闭后再滚动定位并激活评论卡片。
@@ -113,6 +145,19 @@ export function CommentsPopoverButton() {
     [editor]
   );
 
+  const markAllRead = React.useCallback(() => {
+    const items = unreadDiscussions
+      .map((discussion) => getDiscussionReadItem(discussion, currentUserId))
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+    if (items.length === 0) return;
+
+    const nextReadStates = mergeDiscussionReadStates(readStates, items);
+
+    setEditorDiscussionReadStates(editor, nextReadStates);
+    editor.getOption(discussionPlugin, 'onDiscussionRead')?.(items);
+  }, [currentUserId, editor, readStates, unreadDiscussions]);
+
   return (
     <Popover
       open={open}
@@ -130,9 +175,9 @@ export function CommentsPopoverButton() {
           aria-label={m.editor_comments_open()}
         >
           <MessageSquareTextIcon size={16} />
-          {activeDiscussions.length > 0 && (
+          {unreadCount > 0 && (
             <span className="-top-0.5 -right-0.5 absolute flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 font-semibold text-[10px] text-primary-foreground leading-none">
-              {activeDiscussions.length}
+              {unreadCount}
             </span>
           )}
         </Button>
@@ -143,11 +188,29 @@ export function CommentsPopoverButton() {
         align="end"
         sideOffset={6}
       >
-        <div className="flex items-center gap-2 border-b px-3 py-2">
-          <span className="font-semibold text-sm">
-            {m.editor_comments_panel_title()}
-          </span>
-          <div className="relative ml-auto w-44">
+        <div className="grid gap-2 border-b px-3 py-2.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="font-semibold text-sm">
+              {m.editor_comments_panel_title()}
+            </span>
+            {unreadCount > 0 && (
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary text-xs">
+                {m.editor_comments_unread_count({ count: String(unreadCount) })}
+              </span>
+            )}
+            {unreadCount > 0 && (
+              <Button
+                variant="ghost"
+                className="ml-auto h-7 gap-1 px-2 text-muted-foreground text-xs"
+                onClick={markAllRead}
+                type="button"
+              >
+                <CheckCheckIcon className="size-3.5" />
+                {m.editor_comments_mark_all_read()}
+              </Button>
+            )}
+          </div>
+          <div className="relative">
             <SearchIcon className="-translate-y-1/2 absolute top-1/2 left-2 size-3.5 text-muted-foreground" />
             <input
               className={cn(
@@ -174,6 +237,11 @@ export function CommentsPopoverButton() {
               <DiscussionListItem
                 key={discussion.id}
                 discussion={discussion}
+                unread={isDiscussionUnread({
+                  currentUserId,
+                  discussion,
+                  readState: readStatesByDiscussionId.get(discussion.id),
+                })}
                 onJump={() => jumpToDiscussion(discussion)}
               />
             ))
@@ -186,9 +254,11 @@ export function CommentsPopoverButton() {
 
 function DiscussionListItem({
   discussion,
+  unread,
   onJump,
 }: {
   discussion: TDiscussion;
+  unread: boolean;
   onJump: () => void;
 }) {
   const editor = useEditorRef();
@@ -203,7 +273,8 @@ function DiscussionListItem({
       type="button"
       className={cn(
         'flex w-full cursor-pointer flex-col gap-1.5 border-b px-4 py-3 text-left outline-none transition-colors last:border-b-0',
-        'hover:bg-accent/60 focus-visible:bg-accent/60'
+        'hover:bg-accent/60 focus-visible:bg-accent/60',
+        unread && 'bg-accent/35'
       )}
       onClick={onJump}
     >
@@ -212,7 +283,10 @@ function DiscussionListItem({
           <AvatarImage alt={userInfo?.name} src={userInfo?.avatarUrl} />
           <AvatarFallback>{userInfo?.name?.[0]}</AvatarFallback>
         </Avatar>
-        <span className="font-medium text-sm">{userInfo?.name}</span>
+        {unread && <span className="size-1.5 rounded-full bg-primary" />}
+        <span className={cn('text-sm', unread ? 'font-semibold' : 'font-medium')}>
+          {userInfo?.name}
+        </span>
         <span className="text-muted-foreground text-xs">
           {formatCommentDate(new Date(discussion.createdAt))}
         </span>
@@ -225,7 +299,7 @@ function DiscussionListItem({
       )}
 
       {firstComment && (
-        <div className="line-clamp-2 text-sm">
+        <div className={cn('line-clamp-2 text-sm', unread && 'font-medium')}>
           {richToText(firstComment.contentRich)}
         </div>
       )}

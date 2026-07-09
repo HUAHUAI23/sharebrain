@@ -1,12 +1,14 @@
-import { WorkspaceRoot } from "../features/workspace/workspace-root";
+import { RouterProvider } from "@tanstack/react-router";
+
 import { ErrorBoundary } from "./error-boundary";
 import { AppProviders } from "./providers";
+import { router } from "./router";
 
 export function App() {
   return (
     <ErrorBoundary>
       <AppProviders>
-        <WorkspaceRoot />
+        <RouterProvider router={router} />
       </AppProviders>
     </ErrorBoundary>
   );

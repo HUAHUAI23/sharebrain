@@ -1,6 +1,10 @@
 export { BaseEditorKit } from './editor-base-kit';
 export {
+  canCurrentUserDeleteDiscussion,
+  dispatchEditorDiscussionAction,
   discussionPlugin,
+  markEditorDiscussionRead,
+  setEditorDiscussionReadStates,
   setEditorDiscussions,
   type TDiscussion,
   type TDiscussionUser,
@@ -12,6 +16,16 @@ export {
   type EditorMentionItem,
 } from './lib/mentions';
 export {
+  applyDiscussionAction,
+  getDiscussionExternalActivityKey,
+  getDiscussionReadItem,
+  isDiscussionUnread,
+  mergeDiscussionReadStates,
+  type DiscussionAction,
+  type DiscussionReadItem,
+  type TDiscussionReadState,
+} from './lib/discussions';
+export {
   EditorUploadProvider,
   type EditorUploadErrorHandler,
   type EditorUploadHandler,
@@ -20,6 +34,10 @@ export {
 } from './lib/uploads';
 export { CommentsPopoverButton } from './ui/comments-popover';
 export { Editor, EditorContainer, EditorView } from './ui/editor';
+export {
+  EditorFixedToolbarPanel,
+  type EditorFixedToolbarPanelProps,
+} from './ui/editor-fixed-toolbar-panel';
 export { EditorMoreMenu } from './ui/editor-more-menu';
 export {
   EmojiPickerButton,

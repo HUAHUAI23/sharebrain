@@ -15,6 +15,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Boxes, FileText, LayoutList, Trash2 } from "lucide-react";
 import { useState } from "react";
 
+import { PageTitle } from "../../components/page-title";
 import { ApiClientError, apiRequest, queryKeys } from "../../lib/api-client";
 import type { ModuleTemplatesResponse, WorkspaceView } from "../workspace/workspace-types";
 
@@ -93,15 +94,7 @@ export function ModuleTemplatesView({ onNavigate }: ModuleTemplatesViewProps) {
       </NotionToolbar>
 
       <section className="template-page">
-        <div className="page-title">
-          <NotionIcon size="lg">
-            <Boxes size={22} />
-          </NotionIcon>
-          <div>
-            <h1>{m.module_templates_title()}</h1>
-            <p>{m.module_templates_description()}</p>
-          </div>
-        </div>
+        <PageTitle icon={<Boxes size={22} />} title={m.module_templates_title()} description={m.module_templates_description()} />
 
         <NotionList>
           {templates.isLoading ? (
@@ -132,7 +125,7 @@ export function ModuleTemplatesView({ onNavigate }: ModuleTemplatesViewProps) {
           )}
         </NotionList>
 
-        <div className="template-composer">
+        <div className="mt-5 grid gap-2">
           <NotionSegmentedControl role="group" aria-label={m.module_type_aria()}>
             {(["timeline", "collection"] as const).map((option) => (
               <NotionSegmentedButton
@@ -156,8 +149,15 @@ export function ModuleTemplatesView({ onNavigate }: ModuleTemplatesViewProps) {
             ariaLabel={m.template_create_aria()}
             isPending={createTemplate.isPending}
             error={createError}
+            className="items-start"
           >
-            <Input value={slugifyKey(name)} readOnly aria-label={m.module_key_aria()} placeholder="module-key" />
+            <Input
+              value={slugifyKey(name)}
+              readOnly
+              aria-label={m.module_key_aria()}
+              placeholder="module-key"
+              className="h-6 text-muted-foreground text-xs"
+            />
           </NotionCreateRow>
         </div>
       </section>
