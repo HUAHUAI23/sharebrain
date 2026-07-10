@@ -1,8 +1,8 @@
 import { m } from "@sharebrain/i18n";
 import { NotionEmpty, NotionIcon, NotionList, NotionListRow, NotionText } from "@sharebrain/ui/components/notion";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpenText, ChevronLeft, NotebookText, Search } from "lucide-react";
-import { useMemo } from "react";
+import { BookOpenText, ChevronDown, ChevronLeft, ChevronRight, NotebookText, Search } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import { apiRequest, queryKeys } from "../../lib/api-client";
 import type { ModulesResponse, WorkspaceView } from "../workspace/workspace-types";
@@ -16,11 +16,14 @@ type ProjectViewProps = {
 };
 
 export function ProjectView({ projectId, activeModuleId, onNavigate }: ProjectViewProps) {
+  const [customModulesOpen, setCustomModulesOpen] = useState(true);
   const modulesQuery = useQuery({
     queryKey: queryKeys.modules(projectId),
     queryFn: () => apiRequest<ModulesResponse>(`/api/projects/${projectId}/modules`),
   });
   const modules = modulesQuery.data?.items ?? [];
+  const fixedModules = useMemo(() => modules.filter((module) => module.isSystemFixed), [modules]);
+  const customModules = useMemo(() => modules.filter((module) => !module.isSystemFixed), [modules]);
   const activeModule = useMemo(
     () => modules.find((module) => module.id === activeModuleId) ?? modules[0],
     [activeModuleId, modules],
@@ -45,19 +48,47 @@ export function ProjectView({ projectId, activeModuleId, onNavigate }: ProjectVi
             className="mt-0.5 max-[860px]:grid-flow-col max-[860px]:auto-cols-[minmax(148px,1fr)] max-[860px]:overflow-x-auto"
             aria-label={m.module_templates_title()}
           >
-          {modules.map((module) => (
-            <NotionListRow
-              asChild
-              key={module.id}
-              active={module.id === activeModule?.id}
-              className="grid-cols-[18px_minmax(0,1fr)] px-2 py-1.5 text-[color-mix(in_oklab,var(--foreground)_72%,var(--background))]"
-            >
-              <button type="button" onClick={() => onNavigate({ type: "project", projectId, moduleId: module.id })}>
-                {module.kind === "timeline" ? <NotebookText size={15} /> : <BookOpenText size={15} />}
-                <NotionText title={module.name} description={module.kind === "timeline" ? m.module_timeline_label() : m.module_collection_label()} />
-              </button>
-            </NotionListRow>
-          ))}
+            {fixedModules.map((module) => (
+              <NotionListRow
+                asChild
+                key={module.id}
+                active={module.id === activeModule?.id}
+                className="grid-cols-[18px_minmax(0,1fr)] px-2 py-1.5 text-[color-mix(in_oklab,var(--foreground)_72%,var(--background))]"
+              >
+                <button type="button" onClick={() => onNavigate({ type: "project", projectId, moduleId: module.id })}>
+                  {module.kind === "timeline" ? <NotebookText size={15} /> : <BookOpenText size={15} />}
+                  <NotionText title={module.name} description={module.kind === "timeline" ? m.module_timeline_label() : m.module_collection_label()} />
+                </button>
+              </NotionListRow>
+            ))}
+            {customModules.length > 0 ? (
+              <>
+                <NotionListRow
+                  asChild
+                  className="grid-cols-[18px_minmax(0,1fr)] px-2 py-1.5 text-[color-mix(in_oklab,var(--foreground)_72%,var(--background))]"
+                >
+                  <button type="button" onClick={() => setCustomModulesOpen((value) => !value)}>
+                    {customModulesOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                    <NotionText title={m.module_custom_group()} description={m.module_count({ count: customModules.length })} />
+                  </button>
+                </NotionListRow>
+                {customModulesOpen
+                  ? customModules.map((module) => (
+                      <NotionListRow
+                        asChild
+                        key={module.id}
+                        active={module.id === activeModule?.id}
+                        className="grid-cols-[18px_minmax(0,1fr)] px-5 py-1.5 text-[color-mix(in_oklab,var(--foreground)_72%,var(--background))]"
+                      >
+                        <button type="button" onClick={() => onNavigate({ type: "project", projectId, moduleId: module.id })}>
+                          {module.kind === "timeline" ? <NotebookText size={15} /> : <BookOpenText size={15} />}
+                          <NotionText title={module.name} description={module.kind === "timeline" ? m.module_timeline_label() : m.module_collection_label()} />
+                        </button>
+                      </NotionListRow>
+                    ))
+                  : null}
+              </>
+            ) : null}
           </nav>
         </NotionList>
       </aside>

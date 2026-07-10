@@ -18,74 +18,42 @@ export type TemplateSeed = {
   description: string;
   icon: string;
   sortKey: string;
+  metadata: Record<string, unknown>;
   fields: TemplateFieldSeed[];
 };
 
 export const moduleTemplateSeeds: TemplateSeed[] = [
   {
-    id: "00000000-0000-4000-8100-000000000001",
-    key: "sealaf",
-    name: "sealaf",
+    id: "00000000-0000-4000-8300-000000000001",
+    key: "logs",
+    name: "日志",
     kind: "timeline",
-    description: "记录 sealaf 相关交付、变更和问题上下文。",
-    icon: "ship-wheel",
+    description: "按时间线记录项目日志、变更、问题和关键事件。",
+    icon: "list-tree",
     sortKey: "a0",
-    fields: [
-      {
-        id: "00000000-0000-4000-8200-000000000001",
-        key: "environment",
-        label: "环境",
-        type: "text",
-        required: false,
-        defaultPolicy: "empty",
-        defaultValue: null,
-        options: [],
-        sortKey: "a0",
-      },
-    ],
+    metadata: { fixed: true },
+    fields: [],
   },
   {
-    id: "00000000-0000-4000-8100-000000000002",
-    key: "aiproxy",
-    name: "aiproxy",
-    kind: "timeline",
-    description: "记录 aiproxy 镜像、配置和发布信息。",
-    icon: "boxes",
+    id: "00000000-0000-4000-8300-000000000002",
+    key: "project-background",
+    name: "项目背景",
+    kind: "collection",
+    description: "沉淀项目目标、背景资料、范围约束和关键上下文。",
+    icon: "file-text",
     sortKey: "b0",
-    fields: [
-      {
-        id: "00000000-0000-4000-8200-000000000002",
-        key: "image",
-        label: "镜像",
-        type: "text",
-        required: false,
-        defaultPolicy: "empty",
-        defaultValue: null,
-        options: [],
-        sortKey: "a0",
-      },
-    ],
+    metadata: { fixed: true },
+    fields: [],
   },
   {
-    id: "00000000-0000-4000-8100-000000000003",
-    key: "devbox",
-    name: "devbox",
-    kind: "timeline",
-    description: "记录 devbox 配置、镜像和调试过程。",
-    icon: "terminal-square",
+    id: "00000000-0000-4000-8300-000000000003",
+    key: "knowledge-base",
+    name: "知识库",
+    kind: "collection",
+    description: "组织长期复用的项目知识、操作手册和排障文档。",
+    icon: "book-open-text",
     sortKey: "c0",
-    fields: [
-      {
-        id: "00000000-0000-4000-8200-000000000003",
-        key: "image",
-        label: "镜像",
-        type: "text",
-        required: false,
-        defaultPolicy: "empty",
-        defaultValue: null,
-        options: [],
-        sortKey: "a0",
-      },
-    ],
+    metadata: { fixed: true },
+    fields: [],
   },
 ];

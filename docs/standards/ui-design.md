@@ -58,8 +58,8 @@ UI 参考 Notion 的主设计气质：中性、克制、内容优先、低装饰
 - 模式切换用 segmented/tabs。
 - 数值配置用 slider/stepper/input。
 - 菜单选项用 menu/select。
-- 项目模块只按 `timeline` 和 `collection` 两种原型渲染，不按“日志/背景/知识库/自定义”写死四套页面。
-- 动态字段表单标签来自字段定义，提交值必须按不可变 fieldId 组织。
+- 项目模块只按 `timeline` 和 `collection` 两种原型渲染，不按“日志/背景/知识库/自定义”写死四套页面；侧边导航可以根据 API 派生的固定系统模块身份做一级/二级分组。
+- 动态字段表单标签来自字段定义，提交值必须按不可变 fieldId 组织，并按字段类型使用对应输入控件；不要把 select/boolean/datetime 等字段降级成普通文本输入。
 
 ## 文案
 

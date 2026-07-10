@@ -153,15 +153,20 @@ export const moduleFieldSchema = z.object({
 });
 export type ModuleField = z.infer<typeof moduleFieldSchema>;
 
+export const moduleTemplateFieldSchema = moduleFieldSchema.omit({ moduleId: true });
+export type ModuleTemplateField = z.infer<typeof moduleTemplateFieldSchema>;
+
 export const moduleTemplateSchema = z.object({
   id: uuidSchema,
+  sourceSystemTemplateId: uuidSchema.nullable().optional(),
+  isSystemFixed: z.boolean(),
   key: z.string(),
   name: z.string(),
   kind: moduleKindSchema,
   description: z.string().nullable(),
   icon: z.string().nullable().optional(),
   sortKey: z.string().optional(),
-  fields: z.array(moduleFieldSchema.omit({ moduleId: true })),
+  fields: z.array(moduleTemplateFieldSchema),
 });
 export type ModuleTemplate = z.infer<typeof moduleTemplateSchema>;
 
@@ -174,9 +179,14 @@ export const createModuleTemplateRequestSchema = z.object({
 });
 export type CreateModuleTemplateRequest = z.infer<typeof createModuleTemplateRequestSchema>;
 
+export const updateModuleTemplateRequestSchema = createModuleTemplateRequestSchema.omit({ kind: true }).partial().strict();
+export type UpdateModuleTemplateRequest = z.infer<typeof updateModuleTemplateRequestSchema>;
+
 export const projectModuleSchema = z.object({
   id: uuidSchema,
   projectId: uuidSchema,
+  sourceTemplateId: uuidSchema.nullable().optional(),
+  isSystemFixed: z.boolean(),
   key: z.string(),
   name: z.string(),
   kind: moduleKindSchema,
@@ -195,9 +205,13 @@ export const createModuleRequestSchema = z.object({
 });
 export type CreateModuleRequest = z.infer<typeof createModuleRequestSchema>;
 
-export const updateModuleRequestSchema = createModuleRequestSchema.partial().extend({
-  icon: z.string().trim().max(40).nullable().optional(),
-});
+export const updateModuleRequestSchema = createModuleRequestSchema
+  .omit({ kind: true })
+  .partial()
+  .extend({
+    icon: z.string().trim().max(40).nullable().optional(),
+  })
+  .strict();
 export type UpdateModuleRequest = z.infer<typeof updateModuleRequestSchema>;
 
 export const upsertModuleFieldRequestSchema = z.object({

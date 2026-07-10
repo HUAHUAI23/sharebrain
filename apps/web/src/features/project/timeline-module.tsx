@@ -1,4 +1,3 @@
-import { Input } from "@sharebrain/ui/components/input";
 import { m } from "@sharebrain/i18n";
 import { NotionCreateRow } from "@sharebrain/ui/components/notion-create-row";
 import { NotionEmpty } from "@sharebrain/ui/components/notion";
@@ -6,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListTree } from "lucide-react";
 import { useState } from "react";
 
+import { formatModuleFieldValue, ModuleFieldValueInput } from "../../components/module-field-value-input";
 import { PageTitle } from "../../components/page-title";
 import { ApiClientError } from "../../lib/api-client";
 import { apiRequest, queryKeys } from "../../lib/api-client";
@@ -65,19 +65,27 @@ export function TimelineModule({ projectId, moduleId, module, onNavigate }: Modu
         inputClassName="font-semibold"
       >
         {module?.fields.map((field) => (
-          <label className="grid min-h-7 grid-cols-[132px_minmax(0,1fr)] items-center gap-2 py-px text-[13px] text-muted-foreground max-[860px]:grid-cols-1 max-[860px]:gap-1" key={field.id}>
+          <label
+            className="grid min-h-7 grid-cols-[132px_minmax(0,1fr)] items-center gap-2 py-px text-[13px] text-muted-foreground max-[860px]:grid-cols-1 max-[860px]:gap-1"
+            key={field.id}
+          >
             <span className="truncate">{field.label}</span>
-            <Input
-              aria-label={field.label}
-              type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
-              value={String(values[field.id] ?? "")}
-              onChange={(event) => {
-                const raw = event.target.value;
+            <ModuleFieldValueInput
+              ariaLabel={field.label}
+              type={field.type}
+              options={field.options}
+              value={values[field.id]}
+              onValueChange={(value) => {
                 setCreateError(null);
-                setValues((current) => ({
-                  ...current,
-                  [field.id]: field.type === "number" && raw !== "" ? Number(raw) : raw,
-                }));
+                setValues((current) => {
+                  const next = { ...current };
+                  if (value === undefined) {
+                    delete next[field.id];
+                    return next;
+                  }
+                  next[field.id] = value;
+                  return next;
+                });
               }}
             />
           </label>
@@ -93,14 +101,20 @@ export function TimelineModule({ projectId, moduleId, module, onNavigate }: Modu
               <div className="record-values">
                 {module?.fields.map((field) => {
                   const value = record.values[field.id];
-                  return value ? (
+                  const displayValue = formatModuleFieldValue(field, value);
+                  return displayValue ? (
                     <span key={field.id}>
-                      {field.label}: {String(value)}
+                      {field.label}: {displayValue}
                     </span>
                   ) : null;
                 })}
               </div>
-              <RecordDocuments projectId={projectId} moduleId={moduleId} recordId={record.id} onNavigate={onNavigate} />
+              <RecordDocuments
+                projectId={projectId}
+                moduleId={moduleId}
+                recordId={record.id}
+                onNavigate={onNavigate}
+              />
             </article>
           ))
         ) : (

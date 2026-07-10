@@ -3,6 +3,7 @@ import type {
   DocumentSummary,
   MediaObject,
   ModuleField,
+  ModuleTemplateField,
   ModuleRecord,
   Project,
   ProjectModule,
@@ -14,6 +15,7 @@ import type {
   documentVersions,
   mediaObjects,
   moduleRecords,
+  moduleTemplateFields,
   projectModuleFields,
   projectModules,
   projects,
@@ -74,13 +76,30 @@ export function serializeField(row: Select<typeof projectModuleFields>): ModuleF
   };
 }
 
+export function serializeTemplateField(row: Select<typeof moduleTemplateFields>): ModuleTemplateField {
+  return {
+    id: row.id,
+    key: row.key,
+    label: row.label,
+    type: row.type as ModuleTemplateField["type"],
+    required: row.required,
+    defaultPolicy: row.defaultPolicy as ModuleTemplateField["defaultPolicy"],
+    defaultValue: row.defaultValue ?? null,
+    options: row.options,
+    sortKey: row.sortKey,
+  };
+}
+
 export function serializeModule(
   row: Select<typeof projectModules>,
   fields: Select<typeof projectModuleFields>[],
+  options: { isSystemFixed?: boolean } = {},
 ): ProjectModule {
   return {
     id: row.id,
     projectId: row.projectId,
+    sourceTemplateId: row.sourceTemplateId,
+    isSystemFixed: options.isSystemFixed ?? false,
     key: row.key,
     name: row.name,
     kind: row.kind as ProjectModule["kind"],

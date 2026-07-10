@@ -1,7 +1,7 @@
 import "@sharebrain/config/dotenv";
 
 import { loadServerEnv } from "@sharebrain/config";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { createDatabaseClient } from "../client";
 import {
@@ -151,9 +151,8 @@ async function seed() {
     const tenantTemplates = await db
       .select()
       .from(moduleTemplates)
-      .where(eq(moduleTemplates.tenantId, devTenantId))
-      .orderBy(moduleTemplates.sortKey)
-      .limit(3);
+      .where(and(eq(moduleTemplates.tenantId, devTenantId), isNull(moduleTemplates.deletedAt)))
+      .orderBy(moduleTemplates.sortKey);
 
     for (const template of tenantTemplates) {
       const moduleId = crypto.randomUUID();
@@ -177,7 +176,7 @@ async function seed() {
       const fields = await db
         .select()
         .from(moduleTemplateFields)
-        .where(eq(moduleTemplateFields.templateId, template.id))
+        .where(and(eq(moduleTemplateFields.templateId, template.id), isNull(moduleTemplateFields.deletedAt)))
         .orderBy(moduleTemplateFields.sortKey);
 
       for (const field of fields) {

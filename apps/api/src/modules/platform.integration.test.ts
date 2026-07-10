@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { and, eq, isNull } from "drizzle-orm";
 
+import { copySystemModuleTemplatesToTenant, seedSystemModuleTemplates } from "@sharebrain/db";
 import { createTestApp } from "../test/test-app";
 import { MediaService } from "./media/media.service";
 
@@ -26,8 +27,6 @@ import {
   projectRecents,
   projects,
   searchItems,
-  systemModuleTemplateFields,
-  systemModuleTemplates,
   tenants,
   tenantMemberships,
   users,
@@ -65,6 +64,8 @@ async function resetTestWorkspace() {
   await testApp.db.delete(projectModules).where(eq(projectModules.tenantId, tenantId));
   await testApp.db.delete(projectRecents).where(eq(projectRecents.tenantId, tenantId));
   await testApp.db.delete(projects).where(eq(projects.tenantId, tenantId));
+  await testApp.db.delete(moduleTemplateFields).where(eq(moduleTemplateFields.tenantId, tenantId));
+  await testApp.db.delete(moduleTemplates).where(eq(moduleTemplates.tenantId, tenantId));
 }
 
 async function request(path: string, init: RequestInit = {}, expectedStatuses = [200, 201]) {
@@ -169,14 +170,30 @@ async function seedTemplate() {
     .insert(moduleTemplates)
     .values([
       {
+        id: "00000000-0000-4000-9100-000000000000",
+        tenantId,
+        sourceSystemTemplateId: "00000000-0000-4000-8300-000000000001",
+        key: "logs",
+        name: "日志",
+        kind: "timeline",
+        description: "按时间线记录项目日志、变更、问题和关键事件。",
+        icon: "list-tree",
+        sortKey: "a0",
+        createdBy: userId,
+        updatedBy: userId,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
         id: "00000000-0000-4000-9100-000000000001",
         tenantId,
-        key: "test-log",
-        name: "测试日志",
-        kind: "timeline",
-        description: "测试 timeline 模板",
-        icon: "notebook-text",
-        sortKey: "a0",
+        sourceSystemTemplateId: "00000000-0000-4000-8300-000000000002",
+        key: "project-background",
+        name: "项目背景",
+        kind: "collection",
+        description: "沉淀项目目标、背景资料、范围约束和关键上下文。",
+        icon: "file-text",
+        sortKey: "b0",
         createdBy: userId,
         updatedBy: userId,
         createdAt: now,
@@ -185,12 +202,13 @@ async function seedTemplate() {
       {
         id: "00000000-0000-4000-9100-000000000002",
         tenantId,
-        key: "test-docs",
-        name: "测试文档",
+        sourceSystemTemplateId: "00000000-0000-4000-8300-000000000003",
+        key: "knowledge-base",
+        name: "知识库",
         kind: "collection",
-        description: "测试 collection 模板",
+        description: "组织长期复用的项目知识、操作手册和排障文档。",
         icon: "book-open-text",
-        sortKey: "b0",
+        sortKey: "c0",
         createdBy: userId,
         updatedBy: userId,
         createdAt: now,
@@ -200,57 +218,8 @@ async function seedTemplate() {
     .onConflictDoNothing();
 }
 
-async function seedSystemTemplates() {
-  const now = new Date();
-  await testApp.db
-    .insert(systemModuleTemplates)
-    .values({
-      id: "00000000-0000-4000-9900-000000000001",
-      key: "system-test",
-      name: "系统测试模块",
-      kind: "timeline",
-      description: "系统模板复制测试",
-      icon: "boxes",
-      sortKey: "z0",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: systemModuleTemplates.key,
-      set: {
-        name: "系统测试模块",
-        updatedAt: now,
-        deletedAt: null,
-      },
-    });
-
-  await testApp.db
-    .insert(systemModuleTemplateFields)
-    .values({
-      id: "00000000-0000-4000-9901-000000000001",
-      templateId: "00000000-0000-4000-9900-000000000001",
-      key: "image",
-      label: "镜像",
-      type: "text",
-      required: false,
-      defaultPolicy: "empty",
-      options: [],
-      sortKey: "a0",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [systemModuleTemplateFields.templateId, systemModuleTemplateFields.key],
-      set: {
-        label: "镜像",
-        updatedAt: now,
-        deletedAt: null,
-      },
-    });
-}
-
 beforeAll(async () => {
-  await seedSystemTemplates();
+  await seedSystemModuleTemplates(testApp.db);
   await seedTestIdentity();
   await resetTestWorkspace();
   await seedTemplate();
@@ -279,7 +248,8 @@ describe("platform API", () => {
       .select()
       .from(moduleTemplates)
       .where(eq(moduleTemplates.tenantId, registeredTenantId));
-    expect(registeredTemplates.some((template) => template.key === "system-test")).toBe(true);
+    expect(registeredTemplates.map((template) => template.key)).toEqual(expect.arrayContaining(["logs", "project-background", "knowledge-base"]));
+    expect(registeredTemplates.find((template) => template.key === "logs")?.name).toBe("日志");
 
     const logoutResponse = await testApp.app.request("/api/auth/logout", {
       method: "POST",
@@ -354,11 +324,148 @@ describe("platform API", () => {
 
     const modulesA = itemsOf((await request(`/api/projects/${String(projectA.id)}/modules`)).body);
     const modulesB = itemsOf((await request(`/api/projects/${String(projectB.id)}/modules`)).body);
-    expect(modulesA).toHaveLength(2);
-    expect(modulesB).toHaveLength(2);
+    expect(modulesA).toHaveLength(3);
+    expect(modulesB).toHaveLength(3);
+    expect(modulesA.some((module) => module.isSystemFixed === true)).toBe(true);
 
-    const templateBeforeCreate = itemsOf((await request("/api/module-templates")).body);
-    expect(templateBeforeCreate).toHaveLength(2);
+    let templateBeforeCreate = itemsOf((await request("/api/module-templates")).body);
+    expect(templateBeforeCreate).toHaveLength(3);
+    let fixedTemplate = templateBeforeCreate.find((template) => template.isSystemFixed === true);
+    expect(fixedTemplate).toBeDefined();
+    const fixedTemplateId = String(fixedTemplate?.id);
+    await testApp.db
+      .update(moduleTemplates)
+      .set({ deletedAt: new Date(), updatedBy: userId, updatedAt: new Date() })
+      .where(eq(moduleTemplates.id, fixedTemplateId));
+    await copySystemModuleTemplatesToTenant(testApp.db, tenantId, userId);
+    templateBeforeCreate = itemsOf((await request("/api/module-templates")).body);
+    fixedTemplate = templateBeforeCreate.find((template) => template.id === fixedTemplateId);
+    expect(fixedTemplate?.isSystemFixed).toBe(true);
+    const lockedTemplateDelete = asRecord(
+      (
+        await request(
+          `/api/module-templates/${String(fixedTemplate?.id)}`,
+          { method: "DELETE" },
+          [422],
+        )
+      ).body,
+    );
+    expect(lockedTemplateDelete.code).toBe("MODULE_TEMPLATE_LOCKED");
+    const forbiddenTemplateCreate = asRecord(
+      (
+        await request(
+          "/api/module-templates",
+          {
+            method: "POST",
+            headers: { "x-dev-role": "viewer" },
+            body: JSON.stringify({
+              key: `viewer-${Date.now()}`,
+              name: "Viewer template",
+              kind: "timeline",
+            }),
+          },
+          [403],
+        )
+      ).body,
+    );
+    expect(forbiddenTemplateCreate.code).toBe("FORBIDDEN");
+    const templateField = asRecord(
+      (
+        await request(`/api/module-templates/${String(fixedTemplate?.id)}/fields`, {
+          method: "POST",
+          body: JSON.stringify({
+            key: "status",
+            label: "状态",
+            type: "select",
+            required: false,
+            defaultPolicy: "fixed",
+            defaultValue: "todo",
+            options: [{ id: "todo", label: "待处理" }],
+          }),
+        })
+      ).body,
+    );
+    expect(templateField.key).toBe("status");
+    const templateFieldConflictSource = asRecord(
+      (
+        await request(`/api/module-templates/${String(fixedTemplate?.id)}/fields`, {
+          method: "POST",
+          body: JSON.stringify({
+            key: "priority",
+            label: "优先级",
+            type: "text",
+            required: false,
+            defaultPolicy: "empty",
+            options: [],
+          }),
+        })
+      ).body,
+    );
+    const templateFieldKeyConflict = asRecord(
+      (
+        await request(
+          `/api/module-templates/${String(fixedTemplate?.id)}/fields`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              id: templateFieldConflictSource.id,
+              key: "status",
+              label: "状态冲突",
+              type: "text",
+              required: false,
+              defaultPolicy: "empty",
+              options: [],
+            }),
+          },
+          [409],
+        )
+      ).body,
+    );
+    expect(templateFieldKeyConflict.code).toBe("FIELD_KEY_EXISTS");
+    const deletedTemplateField = asRecord(
+      (
+        await request(`/api/module-templates/${String(fixedTemplate?.id)}/fields/${String(templateField.id)}`, {
+          method: "DELETE",
+        })
+      ).body,
+    );
+    expect(deletedTemplateField.id).toBe(templateField.id);
+    const restoredTemplateField = asRecord(
+      (
+        await request(`/api/module-templates/${String(fixedTemplate?.id)}/fields`, {
+          method: "POST",
+          body: JSON.stringify({
+            key: "status",
+            label: "状态",
+            type: "select",
+            required: false,
+            defaultPolicy: "fixed",
+            defaultValue: "todo",
+            options: [{ id: "todo", label: "待处理" }],
+          }),
+        })
+      ).body,
+    );
+    expect(restoredTemplateField.id).toBe(templateField.id);
+    const collectionTemplate = templateBeforeCreate.find((template) => template.kind === "collection");
+    const invalidTemplateField = asRecord(
+      (
+        await request(
+          `/api/module-templates/${String(collectionTemplate?.id)}/fields`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              key: "owner",
+              label: "负责人",
+              type: "text",
+              options: [],
+            }),
+          },
+          [422],
+        )
+      ).body,
+    );
+    expect(invalidTemplateField.code).toBe("MODULE_KIND_INVALID");
     const customTemplate = asRecord(
       (
         await request("/api/module-templates", {
@@ -372,14 +479,180 @@ describe("platform API", () => {
       ).body,
     );
     expect(customTemplate.name).toBe("自定义默认模块");
+    const duplicatedTemplate = asRecord(
+      (
+        await request(
+          "/api/module-templates",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              key: customTemplate.key,
+              name: "重复默认模块",
+              kind: "collection",
+            }),
+          },
+          [409],
+        )
+      ).body,
+    );
+    expect(duplicatedTemplate.code).toBe("MODULE_TEMPLATE_KEY_EXISTS");
+    const anotherCustomTemplate = asRecord(
+      (
+        await request("/api/module-templates", {
+          method: "POST",
+          body: JSON.stringify({
+            key: `custom-other-${Date.now()}`,
+            name: "另一个默认模块",
+            kind: "timeline",
+          }),
+        })
+      ).body,
+    );
+    const templateKeyConflict = asRecord(
+      (
+        await request(
+          `/api/module-templates/${String(anotherCustomTemplate.id)}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ key: customTemplate.key }),
+          },
+          [409],
+        )
+      ).body,
+    );
+    expect(templateKeyConflict.code).toBe("MODULE_TEMPLATE_KEY_EXISTS");
+    await request(`/api/module-templates/${String(anotherCustomTemplate.id)}`, { method: "DELETE" });
+    const immutableTemplateKind = asRecord(
+      (
+        await request(
+          `/api/module-templates/${String(customTemplate.id)}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ kind: "timeline" }),
+          },
+          [422],
+        )
+      ).body,
+    );
+    expect(immutableTemplateKind.code).toBe("VALIDATION_FAILED");
     await request(`/api/module-templates/${String(customTemplate.id)}`, { method: "DELETE" });
+    const restoredCustomTemplate = asRecord(
+      (
+        await request("/api/module-templates", {
+          method: "POST",
+          body: JSON.stringify({
+            key: customTemplate.key,
+            name: "恢复默认模块",
+            kind: "collection",
+          }),
+        })
+      ).body,
+    );
+    expect(restoredCustomTemplate.id).toBe(customTemplate.id);
+    await request(`/api/module-templates/${String(restoredCustomTemplate.id)}`, { method: "DELETE" });
     const templateAfterDelete = itemsOf((await request("/api/module-templates")).body);
     expect(templateAfterDelete.some((template) => template.id === customTemplate.id)).toBe(false);
 
     const timelineModule = modulesA.find((item) => item.kind === "timeline");
     const collectionModule = modulesA.find((item) => item.kind === "collection");
+    const fixedModule = modulesA.find((item) => item.isSystemFixed === true);
     expect(timelineModule).toBeDefined();
     expect(collectionModule).toBeDefined();
+    expect(fixedModule).toBeDefined();
+
+    const lockedModuleDelete = asRecord(
+      (
+        await request(
+          `/api/projects/${String(projectA.id)}/modules/${String(fixedModule?.id)}`,
+          { method: "DELETE" },
+          [422],
+        )
+      ).body,
+    );
+    expect(lockedModuleDelete.code).toBe("MODULE_LOCKED");
+    const immutableModuleKind = asRecord(
+      (
+        await request(
+          `/api/projects/${String(projectA.id)}/modules/${String(timelineModule?.id)}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ kind: "collection" }),
+          },
+          [422],
+        )
+      ).body,
+    );
+    expect(immutableModuleKind.code).toBe("VALIDATION_FAILED");
+    const customModule = asRecord(
+      (
+        await request(`/api/projects/${String(projectA.id)}/modules`, {
+          method: "POST",
+          body: JSON.stringify({
+            key: `project-custom-${Date.now()}`,
+            name: "项目自定义模块",
+            kind: "collection",
+          }),
+        })
+      ).body,
+    );
+    const duplicatedModule = asRecord(
+      (
+        await request(
+          `/api/projects/${String(projectA.id)}/modules`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              key: customModule.key,
+              name: "重复项目模块",
+              kind: "collection",
+            }),
+          },
+          [409],
+        )
+      ).body,
+    );
+    expect(duplicatedModule.code).toBe("MODULE_KEY_EXISTS");
+    const anotherCustomModule = asRecord(
+      (
+        await request(`/api/projects/${String(projectA.id)}/modules`, {
+          method: "POST",
+          body: JSON.stringify({
+            key: `project-custom-other-${Date.now()}`,
+            name: "另一个项目模块",
+            kind: "timeline",
+          }),
+        })
+      ).body,
+    );
+    const moduleKeyConflict = asRecord(
+      (
+        await request(
+          `/api/projects/${String(projectA.id)}/modules/${String(anotherCustomModule.id)}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ key: customModule.key }),
+          },
+          [409],
+        )
+      ).body,
+    );
+    expect(moduleKeyConflict.code).toBe("MODULE_KEY_EXISTS");
+    await request(`/api/projects/${String(projectA.id)}/modules/${String(anotherCustomModule.id)}`, { method: "DELETE" });
+    await request(`/api/projects/${String(projectA.id)}/modules/${String(customModule.id)}`, { method: "DELETE" });
+    const restoredCustomModule = asRecord(
+      (
+        await request(`/api/projects/${String(projectA.id)}/modules`, {
+          method: "POST",
+          body: JSON.stringify({
+            key: customModule.key,
+            name: "恢复项目模块",
+            kind: "collection",
+          }),
+        })
+      ).body,
+    );
+    expect(restoredCustomModule.id).toBe(customModule.id);
+    await request(`/api/projects/${String(projectA.id)}/modules/${String(restoredCustomModule.id)}`, { method: "DELETE" });
 
     const field = asRecord(
       (
@@ -396,19 +669,93 @@ describe("platform API", () => {
         })
       ).body,
     );
+    const updatedField = asRecord(
+      (
+        await request(`/api/projects/${String(projectA.id)}/modules/${String(timelineModule?.id)}/fields`, {
+          method: "POST",
+          body: JSON.stringify({
+            id: field.id,
+            key: "image",
+            label: "镜像地址",
+            type: "text",
+            required: true,
+            defaultPolicy: "empty",
+            options: [],
+          }),
+        })
+      ).body,
+    );
+    expect(updatedField.sortKey).toBe(field.sortKey);
+    const selectField = asRecord(
+      (
+        await request(`/api/projects/${String(projectA.id)}/modules/${String(timelineModule?.id)}/fields`, {
+          method: "POST",
+          body: JSON.stringify({
+            key: "record-status",
+            label: "记录状态",
+            type: "select",
+            required: false,
+            defaultPolicy: "empty",
+            options: [{ id: "todo", label: "待处理" }, { id: "done", label: "已完成" }],
+          }),
+        })
+      ).body,
+    );
+    const fieldKeyConflict = asRecord(
+      (
+        await request(
+          `/api/projects/${String(projectA.id)}/modules/${String(timelineModule?.id)}/fields`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              id: selectField.id,
+              key: "image",
+              label: "冲突字段",
+              type: "select",
+              required: false,
+              defaultPolicy: "empty",
+              options: [{ id: "todo", label: "待处理" }, { id: "done", label: "已完成" }],
+            }),
+          },
+          [409],
+        )
+      ).body,
+    );
+    expect(fieldKeyConflict.code).toBe("FIELD_KEY_EXISTS");
+    const booleanField = asRecord(
+      (
+        await request(`/api/projects/${String(projectA.id)}/modules/${String(timelineModule?.id)}/fields`, {
+          method: "POST",
+          body: JSON.stringify({
+            key: "confirmed",
+            label: "已确认",
+            type: "boolean",
+            required: false,
+            defaultPolicy: "empty",
+            options: [],
+          }),
+        })
+      ).body,
+    );
     const record = asRecord(
       (
         await request(`/api/projects/${String(projectA.id)}/modules/${String(timelineModule?.id)}/records`, {
           method: "POST",
           body: JSON.stringify({
             title: "API Test timeline record",
-            values: { [String(field.id)]: "registry.example/api-test:1.0.0" },
+            values: {
+              [String(field.id)]: "registry.example/api-test:1.0.0",
+              [String(selectField.id)]: "todo",
+              [String(booleanField.id)]: false,
+            },
           }),
         })
       ).body,
     );
     const fieldId = stringOf(field.id);
-    expect(Object.keys(asRecord(record.values))).toEqual([fieldId]);
+    expect(asRecord(record.values)[fieldId]).toBe("registry.example/api-test:1.0.0");
+    expect(asRecord(record.values)[String(selectField.id)]).toBe("todo");
+    expect(asRecord(record.values)[String(booleanField.id)]).toBe(false);
 
     const invalidRecord = asRecord(
       (
@@ -426,6 +773,67 @@ describe("platform API", () => {
       ).body,
     );
     expect(invalidRecord.code).toBe("FIELD_VALUE_INVALID");
+    const invalidRequiredTextRecord = asRecord(
+      (
+        await request(
+          `/api/projects/${String(projectA.id)}/modules/${String(timelineModule?.id)}/records`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              title: "Invalid required text",
+              values: { [String(field.id)]: "" },
+            }),
+          },
+          [422],
+        )
+      ).body,
+    );
+    expect(invalidRequiredTextRecord.code).toBe("FIELD_VALUE_INVALID");
+
+    const invalidCollectionField = asRecord(
+      (
+        await request(
+          `/api/projects/${String(projectA.id)}/modules/${String(collectionModule?.id)}/fields`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              key: "category",
+              label: "分类",
+              type: "text",
+              options: [],
+            }),
+          },
+          [422],
+        )
+      ).body,
+    );
+    expect(invalidCollectionField.code).toBe("MODULE_KIND_INVALID");
+    const crossProjectField = asRecord(
+      (
+        await request(
+          `/api/projects/${String(projectB.id)}/modules/${String(timelineModule?.id)}/fields`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              key: "cross",
+              label: "Cross project",
+              type: "text",
+              options: [],
+            }),
+          },
+          [404],
+        )
+      ).body,
+    );
+    expect(crossProjectField.code).toBe("MODULE_PROJECT_MISMATCH");
+    const deletedField = asRecord(
+      (
+        await request(`/api/projects/${String(projectA.id)}/modules/${String(timelineModule?.id)}/fields/${String(booleanField.id)}`, {
+          method: "DELETE",
+        })
+      ).body,
+    );
+    expect(deletedField.id).toBe(booleanField.id);
 
     const document = asRecord(
       (

@@ -38,6 +38,9 @@ flowchart LR
 - PostgreSQL 保存 CRDT snapshot、Plate JSON、plain text、blocks、search items、chunks、audit logs。
 - AI 最终回答必须基于 Context Pack，并附带可追溯证据来源。
 - 自定义模块字段定义存表，记录值存 `module_records.values jsonb`，并按不可变 fieldId 存储。
+- 系统固定模板为日志、项目背景和知识库；固定身份由系统模板来源派生，Web 只消费 API 返回的 `isSystemFixed`。模块 `kind` 创建后不可变，避免 timeline 记录字段和值语义被切换到 collection。
+- 默认模板和项目模块的 key 分别按空间/项目唯一；active 冲突返回业务错误，软删除后同 key 且同类型创建会恢复原行。系统模板复制到空间时会恢复被软删除的固定来源模板，保证固定导航来源稳定。
+- `collection` 当前只承载 documents，不支持记录级自定义字段；字段配置只服务 `timeline`。
 - 用户内容时间线统一使用 `module_records`，`timeline_events` 不再作为用户内容事实源。
 - 媒体对象使用 S3/MinIO 私有 bucket，API 按权限签发短时 URL，引用事实源为 `media_usages`。文档 inline 媒体在上传完成时立即绑定 usage，并由 API/collab 文档物化按媒体节点 `sourceKey` 或媒体节点稳定 URL 校准；Worker GC 只清理没有 active usage 的孤儿媒体。
 - Web 页面身份以 TanStack Router URL 为事实源；文档编辑页、项目模块页和默认模块页必须支持刷新恢复、浏览器前进后退和深链接。Zustand 只承载侧栏、面板、弹层等局部 UI 状态。
