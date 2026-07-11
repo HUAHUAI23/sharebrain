@@ -1,97 +1,43 @@
 import { m } from "@sharebrain/i18n";
-import { NotionCreateRow } from "@sharebrain/ui/components/notion-create-row";
+import { Button } from "@sharebrain/ui/components/button";
 import { NotionEmpty } from "@sharebrain/ui/components/notion";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ListTree } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ListTree, Plus } from "lucide-react";
 import { useState } from "react";
 
-import { formatModuleFieldValue, ModuleFieldValueInput } from "../../components/module-field-value-input";
 import { PageTitle } from "../../components/page-title";
-import { ApiClientError } from "../../lib/api-client";
 import { apiRequest, queryKeys } from "../../lib/api-client";
+import { formatModuleFieldValue } from "../dynamic-fields/dynamic-field-control";
 import type { RecordsResponse } from "../workspace/workspace-types";
 import type { ModuleViewProps } from "./project-types";
+import { RecordComposerSheet } from "./record-composer-sheet";
 import { RecordDocuments } from "./record-documents";
 
+import type { TenantMember } from "@sharebrain/contracts";
+
 export function TimelineModule({ projectId, moduleId, module, onNavigate }: ModuleViewProps) {
-  const queryClient = useQueryClient();
-  const [title, setTitle] = useState("");
-  const [values, setValues] = useState<Record<string, unknown>>({});
-  const [createError, setCreateError] = useState<string | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
   const records = useQuery({
     queryKey: queryKeys.records(projectId, moduleId),
     queryFn: () => apiRequest<RecordsResponse>(`/api/projects/${projectId}/modules/${moduleId}/records`),
   });
-  const createRecord = useMutation({
-    mutationFn: () =>
-      apiRequest(`/api/projects/${projectId}/modules/${moduleId}/records`, {
-        method: "POST",
-        body: { title: title.trim() || m.timeline_untitled(), values },
-      }),
-    async onSuccess() {
-      setTitle("");
-      setValues({});
-      setCreateError(null);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.records(projectId, moduleId) });
-    },
-    onError(error) {
-      setCreateError(error instanceof ApiClientError ? error.message : m.module_create_record_error());
-    },
+  const members = useQuery({
+    queryKey: queryKeys.members,
+    queryFn: () => apiRequest<{ items: TenantMember[] }>("/api/members"),
+    enabled: module?.fields.some((field) => field.type === "user") ?? false,
   });
-
-  function createTimelineRecord() {
-    createRecord.mutate();
-  }
 
   return (
     <div className="module-page">
-      <PageTitle
-        icon={<ListTree size={24} />}
-        title={module?.name ?? m.module_timeline_label()}
-        description={m.module_timeline_description()}
-      />
-      <NotionCreateRow
-        value={title}
-        onValueChange={(value) => {
-          setTitle(value);
-          setCreateError(null);
-        }}
-        onCreate={createTimelineRecord}
-        placeholder={m.timeline_create_placeholder()}
-        ariaLabel={m.timeline_create_aria()}
-        isPending={createRecord.isPending}
-        error={createError}
-        className="-mx-1 mb-6 focus-within:bg-muted"
-        inputClassName="font-semibold"
-      >
-        {module?.fields.map((field) => (
-          <label
-            className="grid min-h-7 grid-cols-[132px_minmax(0,1fr)] items-center gap-2 py-px text-[13px] text-muted-foreground max-[860px]:grid-cols-1 max-[860px]:gap-1"
-            key={field.id}
-          >
-            <span className="truncate">{field.label}</span>
-            <ModuleFieldValueInput
-              ariaLabel={field.label}
-              type={field.type}
-              options={field.options}
-              value={values[field.id]}
-              onValueChange={(value) => {
-                setCreateError(null);
-                setValues((current) => {
-                  const next = { ...current };
-                  if (value === undefined) {
-                    delete next[field.id];
-                    return next;
-                  }
-                  next[field.id] = value;
-                  return next;
-                });
-              }}
-            />
-          </label>
-        ))}
-      </NotionCreateRow>
-      <div className="timeline-list">
+      <div className="flex items-end justify-between gap-4 border-b border-border pb-5">
+        <PageTitle
+          icon={<ListTree size={24} />}
+          title={module?.name ?? m.module_timeline_label()}
+          description={m.module_timeline_description()}
+        />
+        <Button size="sm" onClick={() => setComposerOpen(true)}><Plus />{m.timeline_create_placeholder()}</Button>
+      </div>
+      <div className="timeline-list mt-8">
         {(records.data?.items ?? []).length > 0 ? (
           (records.data?.items ?? []).map((record) => (
             <article className="timeline-item" key={record.id}>
@@ -100,27 +46,24 @@ export function TimelineModule({ projectId, moduleId, module, onNavigate }: Modu
               <h2>{record.title}</h2>
               <div className="record-values">
                 {module?.fields.map((field) => {
-                  const value = record.values[field.id];
-                  const displayValue = formatModuleFieldValue(field, value);
-                  return displayValue ? (
-                    <span key={field.id}>
-                      {field.label}: {displayValue}
-                    </span>
-                  ) : null;
+                  const displayValue = formatModuleFieldValue(field, record.values[field.id], members.data?.items);
+                  return displayValue ? <span key={field.id}>{field.label}: {displayValue}</span> : null;
                 })}
               </div>
-              <RecordDocuments
-                projectId={projectId}
-                moduleId={moduleId}
-                recordId={record.id}
-                onNavigate={onNavigate}
-              />
+              <RecordDocuments projectId={projectId} moduleId={moduleId} recordId={record.id} onNavigate={onNavigate} />
             </article>
           ))
         ) : (
           <NotionEmpty>{m.module_no_records()}</NotionEmpty>
         )}
       </div>
+      <RecordComposerSheet
+        open={composerOpen}
+        onOpenChange={setComposerOpen}
+        projectId={projectId}
+        moduleId={moduleId}
+        fields={module?.fields ?? []}
+      />
     </div>
   );
 }

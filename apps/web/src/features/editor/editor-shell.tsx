@@ -28,6 +28,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 
 import { apiRequest, queryKeys } from "../../lib/api-client";
 import { runtimeEnv } from "../../lib/runtime-env";
+import { AccountMenu } from "../account/account-menu";
 import { toEditorDiscussions, useEditorDiscussionsBridge } from "./editor-discussions";
 import { createEditorUploadHandler } from "./editor-upload";
 import type { DocumentResponse, MeResponse, WorkspaceView } from "../workspace/workspace-types";
@@ -437,6 +438,7 @@ function DocumentEditor({
             <div className="flex min-w-0 items-center justify-self-end gap-px">
               <CommentsPopoverButton />
               <EditorMoreMenu fileName={title || "document"} />
+              <AccountMenu />
             </div>
           </NotionToolbar>
           <article className="markdown-editor">

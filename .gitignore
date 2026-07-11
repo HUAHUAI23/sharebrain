@@ -52,8 +52,8 @@ lerna-debug.log*
 *.sqlite
 *.sqlite3
 *.pid
-uploads/
-storage/
+/uploads/
+/storage/
 
 # Drizzle development migrations are disabled for now
 packages/db/drizzle/

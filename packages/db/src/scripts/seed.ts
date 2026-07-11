@@ -32,6 +32,7 @@ async function seed() {
       tenantId: devTenantId,
       name: "个人空间",
       kind: "personal",
+      storageQuotaBytes: 1024 * 1024 * 1024,
       createdBy: devUserId,
       updatedBy: devUserId,
       createdAt: now,
@@ -42,6 +43,7 @@ async function seed() {
       set: {
         name: "个人空间",
         kind: "personal",
+        storageQuotaBytes: 1024 * 1024 * 1024,
         updatedBy: devUserId,
         updatedAt: now,
       },
@@ -151,7 +153,13 @@ async function seed() {
     const tenantTemplates = await db
       .select()
       .from(moduleTemplates)
-      .where(and(eq(moduleTemplates.tenantId, devTenantId), isNull(moduleTemplates.deletedAt)))
+      .where(
+        and(
+          eq(moduleTemplates.tenantId, devTenantId),
+          eq(moduleTemplates.includedInNewProjects, true),
+          isNull(moduleTemplates.deletedAt),
+        ),
+      )
       .orderBy(moduleTemplates.sortKey);
 
     for (const template of tenantTemplates) {
@@ -187,7 +195,7 @@ async function seed() {
           label: field.label,
           type: field.type,
           required: field.required,
-          defaultPolicy: field.defaultPolicy,
+          defaultKind: field.defaultKind,
           defaultValue: field.defaultValue,
           options: field.options,
           sortKey: field.sortKey,

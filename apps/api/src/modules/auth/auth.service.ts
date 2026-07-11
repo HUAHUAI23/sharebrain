@@ -4,6 +4,7 @@ import { authAccounts, authSessions, tenantMemberships, tenants, users } from "@
 import { and, eq, gt, isNull } from "drizzle-orm";
 
 import { ApiError } from "../../app/api-error";
+import { loadUserAvatarDescriptor } from "../shared/avatar";
 import { serializeUser } from "../shared/serializers";
 import { createSessionToken, getSessionExpiresAt, hashSessionToken, normalizeEmail } from "./auth-utils";
 import { seedTenantModuleTemplates } from "./template-seed.service";
@@ -51,6 +52,7 @@ export class AuthService {
         tenantId,
         name: `${payload.displayName} 的空间`,
         kind: "personal",
+        storageQuotaBytes: 1024 * 1024 * 1024,
         createdBy: userId,
         updatedBy: userId,
         createdAt: now,
@@ -216,11 +218,12 @@ export class AuthService {
     }
 
     return {
-      user: serializeUser(user),
+      user: serializeUser(user, await loadUserAvatarDescriptor(this.db, user)),
       tenant: {
         id: tenant.id,
         name: tenant.name,
         kind: tenant.kind as "personal" | "team",
+        storageQuotaBytes: tenant.storageQuotaBytes,
       },
       role: auth.role,
     };

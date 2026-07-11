@@ -1,4 +1,9 @@
-import { GetObjectCommand, HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -51,23 +56,49 @@ export class StorageService {
     }
   }
 
-  async createReadUrl(key: string) {
+  async createReadUrl(bucket: string, key: string) {
     return getSignedUrl(
       this.client,
       new GetObjectCommand({
-        Bucket: this.env.S3_BUCKET,
+        Bucket: bucket,
         Key: key,
       }),
       { expiresIn: this.env.MEDIA_READ_URL_EXPIRES_SECONDS },
     );
   }
 
-  async headObject(key: string) {
+  async headObject(bucket: string, key: string) {
     return this.client.send(
       new HeadObjectCommand({
-        Bucket: this.env.S3_BUCKET,
+        Bucket: bucket,
         Key: key,
       }),
     );
   }
+
+  async getObjectBytes(bucket: string, key: string) {
+    const response = await this.client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      }),
+    );
+    if (!response.Body) {
+      throw new ApiError("MEDIA_OBJECT_EMPTY", "媒体对象内容为空。", 422);
+    }
+    return response.Body.transformToByteArray();
+  }
+
+  async putObject(params: { bucket: string; key: string; body: Uint8Array; mimeType: string; cacheControl?: string }) {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: params.bucket,
+        Key: params.key,
+        Body: params.body,
+        ContentType: params.mimeType,
+        CacheControl: params.cacheControl,
+      }),
+    );
+  }
+
 }

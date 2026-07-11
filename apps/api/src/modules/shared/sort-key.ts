@@ -4,6 +4,12 @@ export function nextSortKey(currentCount: number) {
   return `${String(currentCount + 1).padStart(6, "0")}`;
 }
 
+export function appendSortKey() {
+  const timestamp = Date.now().toString(36).padStart(10, "0");
+  const entropy = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+  return `z${timestamp}${entropy}`;
+}
+
 export function betweenSortKeys(before?: string | null, after?: string | null) {
   if (!before && !after) {
     return "000001";

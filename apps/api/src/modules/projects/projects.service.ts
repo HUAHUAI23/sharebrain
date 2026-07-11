@@ -92,7 +92,13 @@ export class ProjectsService {
       const templates = await tx
         .select()
         .from(moduleTemplates)
-        .where(and(eq(moduleTemplates.tenantId, auth.tenantId), isNull(moduleTemplates.deletedAt)))
+        .where(
+          and(
+            eq(moduleTemplates.tenantId, auth.tenantId),
+            eq(moduleTemplates.includedInNewProjects, true),
+            isNull(moduleTemplates.deletedAt),
+          ),
+        )
         .orderBy(moduleTemplates.sortKey);
 
       for (const template of templates) {
@@ -133,7 +139,7 @@ export class ProjectsService {
             label: field.label,
             type: field.type,
             required: field.required,
-            defaultPolicy: field.defaultPolicy,
+            defaultKind: field.defaultKind,
             defaultValue: field.defaultValue,
             options: field.options,
             sortKey: field.sortKey,

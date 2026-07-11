@@ -52,6 +52,9 @@ export const queryKeys = {
   recents: ["me", "recents"] as const,
   projects: ["projects"] as const,
   moduleTemplates: ["module-templates"] as const,
+  storageSummary: ["storage", "summary"] as const,
+  mediaLimits: ["media", "limits"] as const,
+  members: ["members"] as const,
   project: (projectId: string) => ["projects", projectId] as const,
   modules: (projectId: string) => ["projects", projectId, "modules"] as const,
   records: (projectId: string, moduleId: string) =>

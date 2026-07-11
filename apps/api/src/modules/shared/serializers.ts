@@ -22,6 +22,7 @@ import type {
   projectRecents,
   users,
 } from "@sharebrain/db/schema";
+import { createGeneratedAvatarDescriptor } from "./avatar";
 
 type Select<TTable extends { $inferSelect: unknown }> = TTable["$inferSelect"];
 
@@ -29,12 +30,16 @@ export function toIso(value: Date) {
   return value.toISOString();
 }
 
-export function serializeUser(row: Select<typeof users>): User {
+export function serializeUser(
+  row: Select<typeof users>,
+  avatar: User["avatar"] = createGeneratedAvatarDescriptor(row.id),
+): User {
   return {
     id: row.id,
     email: row.email,
     displayName: row.displayName,
     avatarMediaId: row.avatarMediaId,
+    avatar,
   };
 }
 
@@ -69,7 +74,7 @@ export function serializeField(row: Select<typeof projectModuleFields>): ModuleF
     label: row.label,
     type: row.type as ModuleField["type"],
     required: row.required,
-    defaultPolicy: row.defaultPolicy as ModuleField["defaultPolicy"],
+    defaultKind: row.defaultKind as ModuleField["defaultKind"],
     defaultValue: row.defaultValue ?? null,
     options: row.options,
     sortKey: row.sortKey,
@@ -83,7 +88,7 @@ export function serializeTemplateField(row: Select<typeof moduleTemplateFields>)
     label: row.label,
     type: row.type as ModuleTemplateField["type"],
     required: row.required,
-    defaultPolicy: row.defaultPolicy as ModuleTemplateField["defaultPolicy"],
+    defaultKind: row.defaultKind as ModuleTemplateField["defaultKind"],
     defaultValue: row.defaultValue ?? null,
     options: row.options,
     sortKey: row.sortKey,
@@ -165,6 +170,7 @@ export function serializeMediaObject(row: Select<typeof mediaObjects>): MediaObj
     fileName: row.fileName,
     mimeType: row.mimeType,
     byteSize: row.byteSize,
+    purpose: row.purpose as MediaObject["purpose"],
     status: row.status as MediaObject["status"],
     createdAt: toIso(row.createdAt),
   };

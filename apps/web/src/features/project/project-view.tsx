@@ -5,6 +5,7 @@ import { BookOpenText, ChevronDown, ChevronLeft, ChevronRight, NotebookText, Sea
 import { useMemo, useState } from "react";
 
 import { apiRequest, queryKeys } from "../../lib/api-client";
+import { AccountMenu } from "../account/account-menu";
 import type { ModulesResponse, WorkspaceView } from "../workspace/workspace-types";
 import { CollectionModule } from "./collection-module";
 import { TimelineModule } from "./timeline-module";
@@ -93,6 +94,7 @@ export function ProjectView({ projectId, activeModuleId, onNavigate }: ProjectVi
         </NotionList>
       </aside>
       <section className="project-content">
+        <div className="project-accountbar"><AccountMenu /></div>
         {activeModule ? (
           activeModule.kind === "timeline" ? (
             <TimelineModule projectId={projectId} moduleId={activeModule.id} module={activeModule} onNavigate={onNavigate} />

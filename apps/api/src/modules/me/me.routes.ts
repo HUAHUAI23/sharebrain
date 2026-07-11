@@ -14,5 +14,10 @@ export function createMeRoutes() {
     });
   });
 
+  app.get("/api/members", async (context) => {
+    const service = new MeService(context.var.db);
+    return context.json({ items: await service.listMembers(context.var.auth) });
+  });
+
   return app;
 }

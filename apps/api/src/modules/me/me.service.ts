@@ -1,8 +1,13 @@
 import { type AuthContext } from "@sharebrain/contracts";
-import { tenants, users } from "@sharebrain/db/schema";
-import { and, eq, isNull } from "drizzle-orm";
+import { mediaObjects, tenantMemberships, tenants, users } from "@sharebrain/db/schema";
+import { and, asc, eq, isNull } from "drizzle-orm";
 
 import { ApiError } from "../../app/api-error";
+import {
+  createGeneratedAvatarDescriptor,
+  createUploadedAvatarDescriptor,
+  loadUserAvatarDescriptor,
+} from "../shared/avatar";
 import { serializeUser } from "../shared/serializers";
 
 import type { DatabaseClient } from "@sharebrain/db";
@@ -28,13 +33,58 @@ export class MeService {
     }
 
     return {
-      user: serializeUser(user),
+      user: serializeUser(user, await loadUserAvatarDescriptor(this.db, user)),
       tenant: {
         id: tenant.id,
         name: tenant.name,
         kind: tenant.kind as "personal" | "team",
+        storageQuotaBytes: tenant.storageQuotaBytes,
       },
       role: auth.role,
     };
+  }
+
+  async listMembers(auth: AuthContext) {
+    const rows = await this.db
+      .select({
+        user: users,
+        avatarMediaId: mediaObjects.id,
+        avatarByteSize: mediaObjects.byteSize,
+      })
+      .from(tenantMemberships)
+      .innerJoin(
+        users,
+        and(
+          eq(tenantMemberships.userId, users.id),
+          eq(tenantMemberships.tenantId, users.tenantId),
+          eq(users.status, "active"),
+          isNull(users.deletedAt),
+        ),
+      )
+      .leftJoin(
+        mediaObjects,
+        and(
+          eq(users.avatarMediaId, mediaObjects.id),
+          eq(mediaObjects.tenantId, auth.tenantId),
+          eq(mediaObjects.purpose, "avatar"),
+          eq(mediaObjects.status, "active"),
+          isNull(mediaObjects.deletedAt),
+        ),
+      )
+      .where(
+        and(
+          eq(tenantMemberships.tenantId, auth.tenantId),
+          isNull(tenantMemberships.deletedAt),
+        ),
+      )
+      .orderBy(asc(users.displayName), asc(users.id));
+    return rows.map(({ user, avatarMediaId, avatarByteSize }) =>
+      serializeUser(
+        user,
+        avatarMediaId
+          ? createUploadedAvatarDescriptor(user.id, avatarMediaId, avatarByteSize)
+          : createGeneratedAvatarDescriptor(user.id),
+      ),
+    );
   }
 }

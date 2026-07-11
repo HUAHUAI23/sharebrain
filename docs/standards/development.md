@@ -83,6 +83,8 @@ Web 默认使用同源 `/api` 请求后端，开发期由 Vite proxy 转发到 `
 2. 按任务清单分批实现，每个任务控制在 2-3 个文件。
 3. 每次涉及接口、数据、架构、模块边界，都同步更新 `docs/` 和 `helloagents/wiki/`。
 4. 完成后运行 `bun run typecheck`，必要时运行 `bun run build` 和相关测试。
+   - 涉及 Web、构建配置或跨 workspace 合约时，必须同时运行 `bun run test`、`bun run build` 和 `bun run lint:docs`。
+   - 账户、模块配置和动态表单等关键交互变更必须使用 Playwright 覆盖桌面与移动视口，并检查控制台错误和横向溢出。
 5. 没有测试文件的 workspace 必须让 `test` 脚本显式成功并输出占位信息，避免 `bun run check` 因 “No tests found” 失败。
 6. 方案包执行完后迁移到 `helloagents/history/YYYY-MM/`。
 
@@ -96,6 +98,9 @@ Web 默认使用同源 `/api` 请求后端，开发期由 Vite proxy 转发到 `
 - `AUTH_DEV_BYPASS_ENABLED` 只用于开发/测试后门，关闭后必须通过登录 session 访问 `/api/*`。
 - AI 生成使用 `AI_MODEL_PROVIDER`、`AI_BASE_URL`、`AI_API_KEY`、`AI_MODEL`、`AI_MAX_OUTPUT_TOKENS`；未配置时 `/api/ai/command` 返回 `AI_NOT_CONFIGURED`，不允许把密钥写入仓库。
 - S3/MinIO 配置统一使用 `S3_*` 和 `MEDIA_*` 环境变量；开发默认值只用于本地 MinIO 占位，真实环境必须覆盖，媒体读取 URL 必须由 API 按权限短时签发。
+- 当前媒体模型不保存 S3 VersionId，媒体 bucket 必须关闭 versioning；Worker 部署身份必须具备 `s3:GetBucketVersioning` 和 `s3:DeleteObject`，无法确认 bucket 未版本化时不得把媒体标记为 purged。
+- 头像上传限制由 `MEDIA_AVATAR_MAX_BYTES` 控制；上传文件只接受 JPEG/PNG/WebP，完成阶段由 API 规范化为 512x512 WebP。
+- 媒体物理清理由 `MEDIA_GC_INTERVAL_SECONDS`、`MEDIA_GC_BATCH_SIZE` 和 `MEDIA_GC_PROCESSING_TIMEOUT_SECONDS` 控制。Worker 必须串行调度每轮 GC，禁止重叠执行；删除失败使用持久化任务重试，不在请求链路直接依赖 S3 删除成功。
 
 ## 运行时约定
 

@@ -1,13 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
-import { z } from "zod";
-
-import { parseJson } from "../../app/validation";
 import type { AppEnv } from "../../app/types";
+import { GENERATED_AVATAR_VERSION, renderGeneratedAvatar } from "./avatar-renderer";
 import { MediaService } from "./media.service";
-
-const avatarRequestSchema = z.object({
-  mediaId: z.string().uuid(),
-});
 
 export function createMediaRoutes() {
   const app = new OpenAPIHono<AppEnv>();
@@ -37,10 +31,36 @@ export function createMediaRoutes() {
     return context.redirect(url, 302);
   });
 
-  app.patch("/api/me/avatar", async (context) => {
+  app.delete("/api/me/avatar", async (context) => {
     const service = new MediaService(context.var.db, context.var.env);
-    const payload = parseJson(avatarRequestSchema, await context.req.json());
-    return context.json(await service.attachAvatar(context.var.auth, payload.mediaId));
+    return context.json(await service.removeAvatar(context.var.auth));
+  });
+
+  app.get("/api/users/:userId/avatar/raw", async (context) => {
+    const service = new MediaService(context.var.db, context.var.env);
+    const source = await service.getAvatarSource(context.var.auth, context.req.param("userId"));
+    if (source.kind === "uploaded") {
+      context.header("Cache-Control", "private, max-age=240");
+      return context.redirect(source.url, 302);
+    }
+    const etag = `\"${GENERATED_AVATAR_VERSION}-${source.seed}\"`;
+    if (context.req.header("if-none-match") === etag) {
+      return context.body(null, 304);
+    }
+    context.header("Content-Type", "image/svg+xml; charset=utf-8");
+    context.header("Cache-Control", "private, max-age=31536000, immutable");
+    context.header("ETag", etag);
+    return context.body(renderGeneratedAvatar(source.seed));
+  });
+
+  app.get("/api/storage/summary", async (context) => {
+    const service = new MediaService(context.var.db, context.var.env);
+    return context.json(await service.getStorageSummary(context.var.auth));
+  });
+
+  app.get("/api/media/limits", (context) => {
+    const service = new MediaService(context.var.db, context.var.env);
+    return context.json(service.getMediaLimits());
   });
 
   return app;

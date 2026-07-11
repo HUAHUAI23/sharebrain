@@ -33,6 +33,7 @@
     "platejs": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "react-easy-crop": "catalog:",
     "yjs": "catalog:",
     "zod": "catalog:",
     "zustand": "catalog:"

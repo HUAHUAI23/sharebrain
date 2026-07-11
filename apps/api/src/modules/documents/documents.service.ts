@@ -18,13 +18,13 @@ import {
   projectModules,
   projects,
 } from "@sharebrain/db/schema";
-import { and, asc, count, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 
 import { ApiError } from "../../app/api-error";
 import { parseJson } from "../../app/validation";
 import { IndexerService } from "../indexer/indexer.service";
 import { serializeDocumentDetail, serializeDocumentSummary } from "../shared/serializers";
-import { nextSortKey } from "../shared/sort-key";
+import { appendSortKey } from "../shared/sort-key";
 
 import type { DatabaseClient } from "@sharebrain/db";
 
@@ -78,12 +78,6 @@ export class DocumentsService {
       await this.ensureParentDocument(auth, projectId, payload.parentId);
     }
 
-    const [documentCountRow] = await this.db
-      .select({ value: count() })
-      .from(documents)
-      .where(and(eq(documents.tenantId, auth.tenantId), eq(documents.projectId, projectId), eq(documents.moduleId, payload.moduleId)));
-    const documentCount = documentCountRow?.value ?? 0;
-
     const now = new Date();
     const [document] = await this.db
       .insert(documents)
@@ -97,7 +91,7 @@ export class DocumentsService {
         status: "active",
         visibility: "tenant",
         currentVersion: 1,
-        sortKey: nextSortKey(documentCount),
+        sortKey: appendSortKey(),
         createdBy: auth.userId,
         updatedBy: auth.userId,
         createdAt: now,

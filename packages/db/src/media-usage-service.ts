@@ -1,9 +1,19 @@
-import { and, eq, inArray, isNull, notInArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 
 import type { DatabaseClient } from "./client";
-import { mediaObjects, mediaUsages } from "./schema";
+import { mediaDeletionJobs, mediaObjects, mediaUsages } from "./schema";
 
-type MediaUsageClient = Pick<DatabaseClient, "insert" | "select" | "update">;
+type MediaUsageClient = Pick<DatabaseClient, "execute" | "insert" | "select" | "update">;
+
+export class MediaUsageUnavailableError extends Error {
+  constructor(
+    readonly mediaId: string,
+    readonly status: string | null,
+  ) {
+    super(`Media ${mediaId} cannot accept a usage in status ${status ?? "missing"}`);
+    this.name = "MediaUsageUnavailableError";
+  }
+}
 
 export type MediaUsageReference = {
   tenantId: string;
@@ -36,7 +46,20 @@ export async function upsertMediaUsageWithClient(
   input: MediaUsageReference,
 ) {
   const now = input.now ?? new Date();
+  const [media] = await lockMediaRows(db, input.tenantId, [input.mediaId]);
+  if (!media || !isReusableMediaStatus(media.status)) {
+    throw new MediaUsageUnavailableError(input.mediaId, media?.status ?? null);
+  }
 
+  await restoreMediaForUsage(db, input.tenantId, [media.id], input.userId, now);
+  await upsertMediaUsageRow(db, input, now);
+}
+
+async function upsertMediaUsageRow(
+  db: MediaUsageClient,
+  input: MediaUsageReference,
+  now: Date,
+) {
   await db
     .insert(mediaUsages)
     .values({
@@ -78,40 +101,23 @@ export async function syncDocumentInlineMediaUsagesWithClient(
   let activeMediaIds: string[] = [];
 
   if (mediaIds.length > 0) {
-    const reusableMedia = await db
-      .select({ id: mediaObjects.id })
-      .from(mediaObjects)
-      .where(
-        and(
-          eq(mediaObjects.tenantId, input.tenantId),
-          inArray(mediaObjects.id, mediaIds),
-          inArray(mediaObjects.status, ["active", "deleted"]),
-        ),
-      );
+    const lockedMedia = await lockMediaRows(db, input.tenantId, mediaIds);
+    const reusableMedia = lockedMedia.filter((media) => isReusableMediaStatus(media.status));
 
     activeMediaIds = reusableMedia.map((media) => media.id);
 
     if (activeMediaIds.length > 0) {
-      await db
-        .update(mediaObjects)
-        .set({
-          status: "active",
-          deletedAt: null,
-          updatedBy: input.userId,
-          updatedAt: now,
-        })
-        .where(and(eq(mediaObjects.tenantId, input.tenantId), inArray(mediaObjects.id, activeMediaIds)));
+      await restoreMediaForUsage(db, input.tenantId, activeMediaIds, input.userId, now);
 
       for (const mediaId of activeMediaIds) {
-        await upsertMediaUsageWithClient(db, {
+        await upsertMediaUsageRow(db, {
           tenantId: input.tenantId,
           mediaId,
           resourceType: "document",
           resourceId: input.documentId,
           usageKind: "inline",
           userId: input.userId,
-          now,
-        });
+        }, now);
       }
     }
   }
@@ -142,4 +148,63 @@ export async function syncDocumentInlineMediaUsagesWithClient(
     activeMedia: activeMediaIds.length,
     removedUsages: removedUsages.length,
   };
+}
+
+function isReusableMediaStatus(status: string) {
+  return status === "active" || status === "pending_delete";
+}
+
+async function lockMediaRows(db: MediaUsageClient, tenantId: string, mediaIds: string[]) {
+  const orderedIds = [...new Set(mediaIds)].sort();
+  for (const mediaId of orderedIds) {
+    await db.execute(
+      sql`select id from media_objects where id = ${mediaId} and tenant_id = ${tenantId} for update`,
+    );
+  }
+
+  if (orderedIds.length === 0) return [];
+  return db
+    .select({ id: mediaObjects.id, status: mediaObjects.status })
+    .from(mediaObjects)
+    .where(and(eq(mediaObjects.tenantId, tenantId), inArray(mediaObjects.id, orderedIds)));
+}
+
+async function restoreMediaForUsage(
+  db: MediaUsageClient,
+  tenantId: string,
+  mediaIds: string[],
+  userId: string,
+  now: Date,
+) {
+  await db
+    .update(mediaObjects)
+    .set({
+      status: "active",
+      deletedAt: null,
+      updatedBy: userId,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(mediaObjects.tenantId, tenantId),
+        inArray(mediaObjects.id, mediaIds),
+        inArray(mediaObjects.status, ["active", "pending_delete"]),
+      ),
+    );
+
+  await db
+    .update(mediaDeletionJobs)
+    .set({
+      status: "cancelled",
+      completedAt: now,
+      updatedBy: userId,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(mediaDeletionJobs.tenantId, tenantId),
+        inArray(mediaDeletionJobs.mediaId, mediaIds),
+        inArray(mediaDeletionJobs.status, ["pending", "failed", "processing"]),
+      ),
+    );
 }

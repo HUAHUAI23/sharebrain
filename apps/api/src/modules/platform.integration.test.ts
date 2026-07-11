@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { and, eq, isNull } from "drizzle-orm";
+import sharp from "sharp";
 
 import { copySystemModuleTemplatesToTenant, seedSystemModuleTemplates } from "@sharebrain/db";
 import { createTestApp } from "../test/test-app";
@@ -17,6 +18,7 @@ import {
   documents,
   documentVersions,
   mediaObjects,
+  mediaDeletionJobs,
   mediaUploads,
   mediaUsages,
   moduleRecords,
@@ -45,10 +47,15 @@ const testRuntimeEnv = {
 const testApp = createTestApp(testRuntimeEnv);
 
 async function resetTestWorkspace() {
+  await testApp.db
+    .update(users)
+    .set({ avatarMediaId: null, updatedBy: userId, updatedAt: new Date() })
+    .where(and(eq(users.id, userId), eq(users.tenantId, tenantId)));
   await testApp.db.delete(auditLogs).where(eq(auditLogs.tenantId, tenantId));
   await testApp.db.delete(authSessions).where(eq(authSessions.tenantId, tenantId));
   await testApp.db.delete(authAccounts).where(eq(authAccounts.tenantId, tenantId));
   await testApp.db.delete(mediaUsages).where(eq(mediaUsages.tenantId, tenantId));
+  await testApp.db.delete(mediaDeletionJobs).where(eq(mediaDeletionJobs.tenantId, tenantId));
   await testApp.db.delete(mediaUploads).where(eq(mediaUploads.tenantId, tenantId));
   await testApp.db.delete(mediaObjects).where(eq(mediaObjects.tenantId, tenantId));
   await testApp.db.delete(documentChunks).where(eq(documentChunks.tenantId, tenantId));
@@ -300,6 +307,8 @@ describe("platform API", () => {
     const me = asRecord((await request("/api/me")).body);
     expect(asRecord(me.user).id).toBe(userId);
     expect(asRecord(me.tenant).id).toBe(tenantId);
+    const mediaLimits = asRecord((await request("/api/media/limits")).body);
+    expect(mediaLimits.avatarMaxBytes).toBe(testApp.env.MEDIA_AVATAR_MAX_BYTES);
 
     const projectA = asRecord(
       (
@@ -378,7 +387,7 @@ describe("platform API", () => {
             label: "状态",
             type: "select",
             required: false,
-            defaultPolicy: "fixed",
+            defaultKind: "literal",
             defaultValue: "todo",
             options: [{ id: "todo", label: "待处理" }],
           }),
@@ -395,7 +404,7 @@ describe("platform API", () => {
             label: "优先级",
             type: "text",
             required: false,
-            defaultPolicy: "empty",
+            defaultKind: "none",
             options: [],
           }),
         })
@@ -413,7 +422,7 @@ describe("platform API", () => {
               label: "状态冲突",
               type: "text",
               required: false,
-              defaultPolicy: "empty",
+              defaultKind: "none",
               options: [],
             }),
           },
@@ -439,7 +448,7 @@ describe("platform API", () => {
             label: "状态",
             type: "select",
             required: false,
-            defaultPolicy: "fixed",
+            defaultKind: "literal",
             defaultValue: "todo",
             options: [{ id: "todo", label: "待处理" }],
           }),
@@ -447,6 +456,30 @@ describe("platform API", () => {
       ).body,
     );
     expect(restoredTemplateField.id).toBe(templateField.id);
+    const reorderedTemplateFieldIds = [String(restoredTemplateField.id), String(templateFieldConflictSource.id)];
+    await request(`/api/module-templates/${String(fixedTemplate?.id)}/fields/reorder`, {
+      method: "POST",
+      body: JSON.stringify({ ids: reorderedTemplateFieldIds }),
+    });
+    const templateAfterFieldReorder = itemsOf((await request("/api/module-templates")).body).find(
+      (template) => template.id === fixedTemplate?.id,
+    );
+    expect((templateAfterFieldReorder?.fields as Array<Record<string, unknown>>).map((field) => field.id)).toEqual(
+      reorderedTemplateFieldIds,
+    );
+    await request(`/api/module-templates/${String(fixedTemplate?.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: "已修改的初始模块" }),
+    });
+    const resetTemplate = asRecord(
+      (
+        await request(`/api/module-templates/${String(fixedTemplate?.id)}/reset`, {
+          method: "POST",
+        })
+      ).body,
+    );
+    expect(resetTemplate.name).toBe("日志");
+    expect(resetTemplate.fields).toEqual([]);
     const collectionTemplate = templateBeforeCreate.find((template) => template.kind === "collection");
     const invalidTemplateField = asRecord(
       (
@@ -479,6 +512,7 @@ describe("platform API", () => {
       ).body,
     );
     expect(customTemplate.name).toBe("自定义默认模块");
+    expect(String(customTemplate.sortKey).startsWith("z")).toBe(true);
     const duplicatedTemplate = asRecord(
       (
         await request(
@@ -508,6 +542,27 @@ describe("platform API", () => {
         })
       ).body,
     );
+    const templatesBeforeReorder = itemsOf((await request("/api/module-templates")).body);
+    const reorderedTemplateIds = templatesBeforeReorder.map((template) => String(template.id)).reverse();
+    await request("/api/module-templates/reorder", {
+      method: "POST",
+      body: JSON.stringify({ ids: reorderedTemplateIds }),
+    });
+    const templatesAfterReorder = itemsOf((await request("/api/module-templates")).body);
+    expect(templatesAfterReorder.map((template) => template.id)).toEqual(reorderedTemplateIds);
+    const invalidTemplateOrder = asRecord(
+      (
+        await request(
+          "/api/module-templates/reorder",
+          {
+            method: "POST",
+            body: JSON.stringify({ ids: reorderedTemplateIds.slice(1) }),
+          },
+          [422],
+        )
+      ).body,
+    );
+    expect(invalidTemplateOrder.code).toBe("ORDER_INVALID");
     const templateKeyConflict = asRecord(
       (
         await request(
@@ -663,7 +718,7 @@ describe("platform API", () => {
             label: "镜像",
             type: "text",
             required: true,
-            defaultPolicy: "empty",
+            defaultKind: "none",
             options: [],
           }),
         })
@@ -679,7 +734,7 @@ describe("platform API", () => {
             label: "镜像地址",
             type: "text",
             required: true,
-            defaultPolicy: "empty",
+            defaultKind: "none",
             options: [],
           }),
         })
@@ -695,7 +750,7 @@ describe("platform API", () => {
             label: "记录状态",
             type: "select",
             required: false,
-            defaultPolicy: "empty",
+            defaultKind: "none",
             options: [{ id: "todo", label: "待处理" }, { id: "done", label: "已完成" }],
           }),
         })
@@ -713,7 +768,7 @@ describe("platform API", () => {
               label: "冲突字段",
               type: "select",
               required: false,
-              defaultPolicy: "empty",
+              defaultKind: "none",
               options: [{ id: "todo", label: "待处理" }, { id: "done", label: "已完成" }],
             }),
           },
@@ -731,7 +786,103 @@ describe("platform API", () => {
             label: "已确认",
             type: "boolean",
             required: false,
-            defaultPolicy: "empty",
+            defaultKind: "none",
+            options: [],
+          }),
+        })
+      ).body,
+    );
+    const lockedFieldType = asRecord(
+      (
+        await request(
+          `/api/projects/${String(projectA.id)}/modules/${String(timelineModule?.id)}/fields`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              id: booleanField.id,
+              key: "confirmed",
+              label: "已确认",
+              type: "text",
+              required: false,
+              defaultKind: "none",
+              options: [],
+            }),
+          },
+          [422],
+        )
+      ).body,
+    );
+    expect(lockedFieldType.code).toBe("FIELD_TYPE_LOCKED");
+    const createdAtField = asRecord(
+      (
+        await request(`/api/projects/${String(projectA.id)}/modules/${String(timelineModule?.id)}/fields`, {
+          method: "POST",
+          body: JSON.stringify({
+            key: "created-at",
+            label: "创建时间",
+            type: "datetime",
+            required: true,
+            defaultKind: "now",
+            options: [],
+          }),
+        })
+      ).body,
+    );
+    const invalidMemberId = "00000000-0000-4000-9900-000000000001";
+    const disabledMemberNow = new Date();
+    await testApp.db.insert(users).values({
+      id: invalidMemberId,
+      tenantId,
+      email: "disabled-member@sharebrain.local",
+      displayName: "Disabled Member",
+      status: "disabled",
+      createdBy: userId,
+      updatedBy: userId,
+      createdAt: disabledMemberNow,
+      updatedAt: disabledMemberNow,
+    });
+    await testApp.db.insert(tenantMemberships).values({
+      tenantId,
+      userId: invalidMemberId,
+      role: "editor",
+      createdBy: userId,
+      updatedBy: userId,
+      createdAt: disabledMemberNow,
+      updatedAt: disabledMemberNow,
+    });
+    const invalidUserDefault = asRecord(
+      (
+        await request(
+          `/api/projects/${String(projectA.id)}/modules/${String(timelineModule?.id)}/fields`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              key: "invalid-owner",
+              label: "无效负责人",
+              type: "user",
+              required: false,
+              defaultKind: "literal",
+              defaultValue: invalidMemberId,
+              options: [],
+            }),
+          },
+          [422],
+        )
+      ).body,
+    );
+    expect(invalidUserDefault.code).toBe("FIELD_USER_INVALID");
+    await testApp.db.delete(tenantMemberships).where(eq(tenantMemberships.userId, invalidMemberId));
+    await testApp.db.delete(users).where(eq(users.id, invalidMemberId));
+    const ownerField = asRecord(
+      (
+        await request(`/api/projects/${String(projectA.id)}/modules/${String(timelineModule?.id)}/fields`, {
+          method: "POST",
+          body: JSON.stringify({
+            key: "owner",
+            label: "负责人",
+            type: "user",
+            required: false,
+            defaultKind: "current_user",
             options: [],
           }),
         })
@@ -756,6 +907,41 @@ describe("platform API", () => {
     expect(asRecord(record.values)[fieldId]).toBe("registry.example/api-test:1.0.0");
     expect(asRecord(record.values)[String(selectField.id)]).toBe("todo");
     expect(asRecord(record.values)[String(booleanField.id)]).toBe(false);
+    expect(asRecord(record.values)[String(ownerField.id)]).toBe(userId);
+    const inheritedCreatedAt = asRecord(record.values)[String(createdAtField.id)];
+    expect(typeof inheritedCreatedAt).toBe("string");
+
+    const patchedRecord = asRecord(
+      (
+        await request(`/api/module-records/${String(record.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ values: { [String(selectField.id)]: "done" } }),
+        })
+      ).body,
+    );
+    expect(asRecord(patchedRecord.values)[String(selectField.id)]).toBe("done");
+    expect(asRecord(patchedRecord.values)[String(createdAtField.id)]).toBe(inheritedCreatedAt);
+    expect(asRecord(patchedRecord.values)[String(ownerField.id)]).toBe(userId);
+
+    const invalidMemberRecord = asRecord(
+      (
+        await request(
+          `/api/projects/${String(projectA.id)}/modules/${String(timelineModule?.id)}/records`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              title: "Invalid member record",
+              values: {
+                [String(field.id)]: "registry.example/member-invalid:1.0.0",
+                [String(ownerField.id)]: invalidMemberId,
+              },
+            }),
+          },
+          [422],
+        )
+      ).body,
+    );
+    expect(invalidMemberRecord.code).toBe("FIELD_USER_INVALID");
 
     const invalidRecord = asRecord(
       (
@@ -892,13 +1078,18 @@ describe("platform API", () => {
     );
     expect(updatedDocument.currentVersion).toBe(2);
 
+    const avatarSource = await sharp({
+      create: { width: 16, height: 16, channels: 4, background: { r: 64, g: 96, b: 128, alpha: 1 } },
+    }).png().toBuffer();
     const mediaService = new MediaService(testApp.db, testApp.env, {
       createPostPolicy: async () => ({
         url: "https://storage.test/upload",
         fields: { "Content-Type": "image/png" },
       }),
-      createReadUrl: async (key) => `https://storage.test/${key}`,
+      createReadUrl: async (_, key) => `https://storage.test/${key}`,
       headObject: async () => ({ ContentLength: 64, ContentType: "image/png" }) as never,
+      getObjectBytes: async () => avatarSource,
+      putObject: async () => undefined,
     });
     const auth = {
       userId,
@@ -912,6 +1103,38 @@ describe("platform API", () => {
       byteSize: 64,
       usageKind: "inline",
     });
+    const otherUserId = "00000000-0000-4000-9000-000000000002";
+    const otherUserNow = new Date();
+    await testApp.db.insert(users).values({
+      id: otherUserId,
+      tenantId,
+      email: "other-media-user@sharebrain.local",
+      displayName: "Other Media User",
+      status: "active",
+      createdBy: userId,
+      updatedBy: userId,
+      createdAt: otherUserNow,
+      updatedAt: otherUserNow,
+    });
+    await testApp.db.insert(tenantMemberships).values({
+      tenantId,
+      userId: otherUserId,
+      role: "editor",
+      createdBy: userId,
+      updatedBy: userId,
+      createdAt: otherUserNow,
+      updatedAt: otherUserNow,
+    });
+    const crossMemberCompletion = await mediaService
+      .completeUpload(
+        { ...auth, userId: otherUserId },
+        inlineUpload.uploadId,
+        { byteSize: 64, mimeType: "image/png" },
+      )
+      .catch((error: unknown) => error);
+    expect(crossMemberCompletion).toMatchObject({ code: "MEDIA_UPLOAD_NOT_FOUND", status: 404 });
+    await testApp.db.delete(tenantMemberships).where(eq(tenantMemberships.userId, otherUserId));
+    await testApp.db.delete(users).where(eq(users.id, otherUserId));
     const completeInlineWithoutUsage = await mediaService
       .completeUpload(auth, inlineUpload.uploadId, {
         byteSize: 64,
@@ -919,7 +1142,7 @@ describe("platform API", () => {
       })
       .catch((error: unknown) => error);
     expect(completeInlineWithoutUsage).toMatchObject({ code: "MEDIA_USAGE_REQUIRED" });
-    await mediaService.completeUpload(auth, inlineUpload.uploadId, {
+    const completedInline = await mediaService.completeUpload(auth, inlineUpload.uploadId, {
       byteSize: 64,
       mimeType: "image/png",
       usage: {
@@ -928,6 +1151,16 @@ describe("platform API", () => {
         usageKind: "inline",
       },
     });
+    const repeatedCompletion = await mediaService.completeUpload(auth, inlineUpload.uploadId, {
+      byteSize: 64,
+      mimeType: "image/png",
+      usage: {
+        resourceType: "document",
+        resourceId: String(document.id),
+        usageKind: "inline",
+      },
+    });
+    expect(repeatedCompletion.id).toBe(completedInline.id);
     const [activeUsageAfterComplete] = await testApp.db
       .select()
       .from(mediaUsages)
@@ -994,6 +1227,58 @@ describe("platform API", () => {
       )
       .limit(1);
     expect(removedUsage?.deletedAt).toBeInstanceOf(Date);
+
+    const firstAvatar = await mediaService.createUpload(auth, {
+      fileName: "avatar-first.png",
+      mimeType: "image/png",
+      byteSize: 64,
+      usageKind: "avatar",
+    });
+    await mediaService.completeUpload(auth, firstAvatar.uploadId, { byteSize: 64, mimeType: "image/png" });
+    const secondAvatar = await mediaService.createUpload(auth, {
+      fileName: "avatar-second.png",
+      mimeType: "image/png",
+      byteSize: 64,
+      usageKind: "avatar",
+    });
+    await mediaService.completeUpload(auth, secondAvatar.uploadId, { byteSize: 64, mimeType: "image/png" });
+    const [oldAvatar] = await testApp.db
+      .select({ status: mediaObjects.status })
+      .from(mediaObjects)
+      .where(eq(mediaObjects.id, firstAvatar.mediaId))
+      .limit(1);
+    const [avatarDeletionJob] = await testApp.db
+      .select({ status: mediaDeletionJobs.status })
+      .from(mediaDeletionJobs)
+      .where(eq(mediaDeletionJobs.mediaId, firstAvatar.mediaId))
+      .limit(1);
+    expect(oldAvatar?.status).toBe("pending_delete");
+    expect(avatarDeletionJob?.status).toBe("pending");
+    const storageSummary = await mediaService.getStorageSummary(auth);
+    expect(storageSummary.breakdown.avatar).toBeGreaterThan(0);
+    expect(storageSummary.reclaimingBytes).toBeGreaterThan(0);
+    await mediaService.removeAvatar(auth);
+    const [removedAvatarUser] = await testApp.db
+      .select({ avatarMediaId: users.avatarMediaId })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const [removedAvatarMedia] = await testApp.db
+      .select({ status: mediaObjects.status })
+      .from(mediaObjects)
+      .where(eq(mediaObjects.id, secondAvatar.mediaId))
+      .limit(1);
+    const [removedAvatarJob] = await testApp.db
+      .select({ status: mediaDeletionJobs.status })
+      .from(mediaDeletionJobs)
+      .where(eq(mediaDeletionJobs.mediaId, secondAvatar.mediaId))
+      .limit(1);
+    expect(removedAvatarUser?.avatarMediaId).toBeNull();
+    expect(removedAvatarMedia?.status).toBe("pending_delete");
+    expect(removedAvatarJob?.status).toBe("pending");
+    const storageAfterAvatarRemoval = await mediaService.getStorageSummary(auth);
+    expect(storageAfterAvatarRemoval.breakdown.avatar).toBe(0);
+    expect(storageAfterAvatarRemoval.reclaimingBytes).toBeGreaterThanOrEqual(storageSummary.reclaimingBytes);
 
     const now = new Date().toISOString();
     await testApp.db.insert(documentReviewStates).values({
@@ -1074,5 +1359,125 @@ describe("platform API", () => {
       ).body,
     );
     expect(completeWithoutObject.code).toBe("MEDIA_OBJECT_UNAVAILABLE");
-  }, 15_000);
+  }, 60_000);
+
+  test("rejects avatar inputs above the server pixel limit before replacing the object", async () => {
+    const oversizedSvg = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="5000" height="5000"><rect width="100%" height="100%" fill="red"/></svg>',
+    );
+    let putCalled = false;
+    const service = new MediaService(testApp.db, testApp.env, {
+      createPostPolicy: async () => ({ url: "https://storage.test/upload", fields: {} }),
+      createReadUrl: async (_, key) => `https://storage.test/${key}`,
+      headObject: async () => ({
+        ContentLength: oversizedSvg.byteLength,
+        ContentType: "image/png",
+      }) as never,
+      getObjectBytes: async () => oversizedSvg,
+      putObject: async () => {
+        putCalled = true;
+      },
+    });
+    const upload = await service.createUpload(
+      { userId, tenantId, role: "admin", requestId: "avatar-pixel-limit" },
+      {
+        fileName: "oversized.png",
+        mimeType: "image/png",
+        byteSize: oversizedSvg.byteLength,
+        usageKind: "avatar",
+      },
+    );
+    const error = await service
+      .completeUpload(
+        { userId, tenantId, role: "admin", requestId: "avatar-pixel-limit" },
+        upload.uploadId,
+        { byteSize: oversizedSvg.byteLength, mimeType: "image/png" },
+      )
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: "AVATAR_IMAGE_INVALID", status: 422 });
+    expect(putCalled).toBe(false);
+  });
+
+  test("serializes concurrent upload reservations against the tenant quota", async () => {
+    const quotaTenantId = "00000000-0000-4000-9001-000000000101";
+    const quotaUserId = "00000000-0000-4000-9001-000000000001";
+    const now = new Date();
+    await testApp.db.insert(tenants).values({
+      id: quotaTenantId,
+      tenantId: quotaTenantId,
+      name: "Quota test",
+      kind: "personal",
+      storageQuotaBytes: 100,
+      createdBy: quotaUserId,
+      updatedBy: quotaUserId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await testApp.db.insert(users).values({
+      id: quotaUserId,
+      tenantId: quotaTenantId,
+      email: "quota-test@sharebrain.local",
+      displayName: "Quota Test",
+      status: "active",
+      createdBy: quotaUserId,
+      updatedBy: quotaUserId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await testApp.db.insert(tenantMemberships).values({
+      tenantId: quotaTenantId,
+      userId: quotaUserId,
+      role: "admin",
+      createdBy: quotaUserId,
+      updatedBy: quotaUserId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    try {
+      let policyCalls = 0;
+      const service = new MediaService(testApp.db, testApp.env, {
+        createPostPolicy: async () => {
+          policyCalls += 1;
+          return { url: "https://storage.test/upload", fields: {} };
+        },
+        createReadUrl: async (_, key) => `https://storage.test/${key}`,
+        headObject: async () => ({}) as never,
+        getObjectBytes: async () => new Uint8Array(),
+        putObject: async () => undefined,
+      });
+      const quotaAuth = {
+        userId: quotaUserId,
+        tenantId: quotaTenantId,
+        role: "admin" as const,
+        requestId: "quota-concurrency-test",
+      };
+      const results = await Promise.allSettled([
+        service.createUpload(quotaAuth, {
+          fileName: "first.png",
+          mimeType: "image/png",
+          byteSize: 80,
+          usageKind: "inline",
+        }),
+        service.createUpload(quotaAuth, {
+          fileName: "second.png",
+          mimeType: "image/png",
+          byteSize: 80,
+          usageKind: "inline",
+        }),
+      ]);
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+      expect(results.find((result) => result.status === "rejected")?.reason).toMatchObject({
+        code: "STORAGE_QUOTA_EXCEEDED",
+      });
+      expect(policyCalls).toBe(1);
+    } finally {
+      await testApp.db.delete(mediaUploads).where(eq(mediaUploads.tenantId, quotaTenantId));
+      await testApp.db.delete(mediaObjects).where(eq(mediaObjects.tenantId, quotaTenantId));
+      await testApp.db.delete(tenantMemberships).where(eq(tenantMemberships.tenantId, quotaTenantId));
+      await testApp.db.delete(users).where(eq(users.tenantId, quotaTenantId));
+      await testApp.db.delete(tenants).where(eq(tenants.id, quotaTenantId));
+    }
+  });
 });

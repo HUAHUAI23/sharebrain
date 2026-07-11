@@ -10,14 +10,13 @@ import {
   NotionText,
 } from "@sharebrain/ui/components/notion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock3, FileText, LayoutList, Search } from "lucide-react";
+import { Clock3, FileText, Search } from "lucide-react";
 import { useState } from "react";
 
-import { LanguageSwitcher } from "../../components/language-switcher";
 import { ApiClientError } from "../../lib/api-client";
 import { apiRequest, queryKeys } from "../../lib/api-client";
-import { AvatarUpload } from "../media/avatar-upload";
-import type { MeResponse, ProjectsResponse, RecentsResponse, SearchResponse, WorkspaceView } from "../workspace/workspace-types";
+import { AccountMenu } from "../account/account-menu";
+import type { ProjectsResponse, RecentsResponse, SearchResponse, WorkspaceView } from "../workspace/workspace-types";
 
 type HomeViewProps = {
   onNavigate: (view: WorkspaceView) => void;
@@ -28,10 +27,6 @@ export function HomeView({ onNavigate }: HomeViewProps) {
   const [createError, setCreateError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const queryClient = useQueryClient();
-  const me = useQuery({
-    queryKey: queryKeys.me,
-    queryFn: () => apiRequest<MeResponse>("/api/me"),
-  });
   const recents = useQuery({
     queryKey: queryKeys.recents,
     queryFn: () => apiRequest<RecentsResponse>("/api/me/recents"),
@@ -66,34 +61,10 @@ export function HomeView({ onNavigate }: HomeViewProps) {
   const recentItems = recents.data?.items ?? [];
   const projectItems = projects.data?.items ?? [];
   const visibleProjects = recentItems.length > 0 ? recentItems : projectItems;
-  const userName = me.data?.user.displayName ?? m.home_default_user_name();
-  const tenantName = me.data?.tenant.name ?? m.home_personal_space();
-  const userInitial = userName.slice(0, 1).toUpperCase();
-
   return (
     <main className="home-shell">
       <header className="home-topbar">
-        <NotionListRow
-          asChild
-          className="grid-cols-[28px_minmax(0,1fr)] px-1.5 py-1 [max-width:min(320px,calc(100vw-128px))]"
-        >
-          <button type="button" aria-label={m.home_personal_space()}>
-            <NotionIcon>{userInitial}</NotionIcon>
-            <NotionText title={userName} description={tenantName} />
-          </button>
-        </NotionListRow>
-        <div className="home-actions">
-          <LanguageSwitcher />
-          <button
-            className="inline-flex min-h-7 items-center gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-muted-foreground hover:bg-accent"
-            type="button"
-            onClick={() => onNavigate({ type: "module-templates" })}
-          >
-            <LayoutList size={14} />
-            <span>{m.home_module_templates()}</span>
-          </button>
-          <AvatarUpload />
-        </div>
+        <AccountMenu />
       </header>
 
       <section className="home-center">

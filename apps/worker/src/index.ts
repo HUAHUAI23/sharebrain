@@ -1,7 +1,7 @@
 import "@sharebrain/config/dotenv";
 
 import { loadServerEnv } from "@sharebrain/config";
-import { authContextSchema, workerHealthResponseSchema } from "@sharebrain/contracts";
+import { workerHealthResponseSchema } from "@sharebrain/contracts";
 import { createDatabaseClient } from "@sharebrain/db";
 
 import { runMediaGarbageCollection } from "./jobs/media-gc";
@@ -18,21 +18,36 @@ export function getWorkerHealth() {
 
 if (import.meta.main) {
   const db = createDatabaseClient(env.DATABASE_URL);
-  const auth = authContextSchema.parse({
-    userId: env.DEV_AUTH_USER_ID,
-    tenantId: env.DEV_AUTH_TENANT_ID,
-    role: env.DEV_AUTH_ROLE,
-    requestId: "worker-startup",
-  });
-  const gc = await runMediaGarbageCollection(db, auth);
+  const runGc = async () => runMediaGarbageCollection(db, env);
+  const gc = await runGc();
   console.info(
     `ShareBrain worker started with concurrency=${env.WORKER_CONCURRENCY}. ${JSON.stringify(
       getWorkerHealth(),
     )}. mediaGc=${JSON.stringify(gc)}`,
   );
 
-  await new Promise(() => {
-    process.once("SIGTERM", () => process.exit(0));
-    process.once("SIGINT", () => process.exit(0));
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let activeRun: Promise<void> | undefined;
+  const schedule = () => {
+    timer = setTimeout(() => {
+      activeRun = runGc()
+        .then((result) => console.info(`mediaGc=${JSON.stringify(result)}`))
+        .catch(console.error)
+        .finally(() => {
+          activeRun = undefined;
+          if (!stopped) schedule();
+        });
+    }, env.MEDIA_GC_INTERVAL_SECONDS * 1000);
+  };
+  schedule();
+
+  await new Promise<void>((resolve) => {
+    process.once("SIGTERM", resolve);
+    process.once("SIGINT", resolve);
   });
+  stopped = true;
+  if (timer) clearTimeout(timer);
+  await activeRun;
+  await db.$client.end({ timeout: 5 });
 }

@@ -1,56 +1,43 @@
-import { Button } from "@sharebrain/ui/components/button";
 import { m } from "@sharebrain/i18n";
-import { Input } from "@sharebrain/ui/components/input";
-import { NotionCreateRow } from "@sharebrain/ui/components/notion-create-row";
+import { Button } from "@sharebrain/ui/components/button";
 import {
-  NotionEmpty,
-  NotionIcon,
-  NotionList,
-  NotionListRow,
-  NotionSegmentedButton,
-  NotionSegmentedControl,
-  NotionText,
-  NotionToolbar,
-} from "@sharebrain/ui/components/notion";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@sharebrain/ui/components/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@sharebrain/ui/components/dropdown-menu";
+import { Input } from "@sharebrain/ui/components/input";
+import { NotionEmpty, NotionIcon, NotionList, NotionListRow, NotionText, NotionToolbar } from "@sharebrain/ui/components/notion";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@sharebrain/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, BookOpenText, Boxes, FileText, LayoutList, LockKeyhole, Trash2 } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { ArrowDown, ArrowLeft, ArrowUp, BookOpenText, FileText, GripVertical, LayoutList, LockKeyhole, MoreHorizontal, Plus } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { PageTitle } from "../../components/page-title";
 import { ApiClientError, apiRequest, queryKeys } from "../../lib/api-client";
+import { AccountMenu } from "../account/account-menu";
 import { ModuleTemplateEditor } from "./module-template-editor";
+import type { FieldPayload, TemplateUpdatePayload } from "./module-template-editor.types";
 import { getKindLabel, moduleKinds, slugifyKey } from "./module-template-utils";
-import type { ModuleTemplatesResponse, WorkspaceView } from "../workspace/workspace-types";
 
-import type { ModuleFieldType, ModuleKind, ModuleTemplate } from "@sharebrain/contracts";
+import type { ModuleKind, ModuleTemplate, TenantMember } from "@sharebrain/contracts";
 
 type ModuleTemplatesViewProps = {
-  onNavigate: (view: WorkspaceView) => void;
-};
-
-type TemplateUpdatePayload = {
-  key?: string;
-  name?: string;
-  description?: string;
-  icon?: string;
-};
-
-type FieldPayload = {
-  id?: string;
-  key: string;
-  label: string;
-  type: ModuleFieldType;
-  required: boolean;
-  defaultPolicy: "empty" | "fixed";
-  defaultValue?: unknown;
-  options: Array<{ id: string; label: string; color?: string }>;
+  selectedTemplateId?: string;
 };
 
 function templateIcon(template: ModuleTemplate) {
-  if (template.kind === "timeline") {
-    return <LayoutList size={14} />;
-  }
-  return template.key === "knowledge-base" ? <BookOpenText size={14} /> : <FileText size={14} />;
+  if (template.kind === "timeline") return <LayoutList />;
+  return template.key === "knowledge-base" ? <BookOpenText /> : <FileText />;
 }
 
 function TemplateListSection({
@@ -58,51 +45,78 @@ function TemplateListSection({
   items,
   selectedId,
   onSelect,
-  onDelete,
-  isDeleting,
+  onDropTemplate,
+  onMoveTemplate,
 }: {
   title: ReactNode;
   items: ModuleTemplate[];
   selectedId: string | undefined;
   onSelect: (templateId: string) => void;
-  onDelete: (templateId: string) => void;
-  isDeleting: boolean;
+  onDropTemplate: (draggedId: string, targetId: string) => void;
+  onMoveTemplate: (templateId: string, offset: -1 | 1) => void;
 }) {
-  if (items.length === 0) {
-    return null;
-  }
-
+  const [draggedId, setDraggedId] = useState<string>();
+  if (!items.length) return null;
   return (
     <div className="grid gap-1">
-      <div className="px-1.5 text-xs font-medium text-muted-foreground">{title}</div>
+      <div className="px-2 text-xs font-medium text-muted-foreground">{title}</div>
       <NotionList>
-        {items.map((template) => (
+        {items.map((template, index) => (
           <NotionListRow
             asChild
             key={template.id}
             active={selectedId === template.id}
-            className="grid-cols-[24px_minmax(0,1fr)_30px] px-1.5 py-1.5"
+            className="grid-cols-[18px_28px_minmax(0,1fr)_20px_28px] px-1 py-1.5"
           >
-            <div>
-              <button className="contents" type="button" onClick={() => onSelect(template.id)}>
+            <div
+              draggable
+              onDragStart={() => setDraggedId(template.id)}
+              onDragEnd={() => setDraggedId(undefined)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() => {
+                if (draggedId && draggedId !== template.id) onDropTemplate(draggedId, template.id);
+                setDraggedId(undefined);
+              }}
+            >
+              <GripVertical className="size-4 cursor-grab text-muted-foreground/60" />
+              <button type="button" className="contents" onClick={() => onSelect(template.id)}>
                 <NotionIcon>{templateIcon(template)}</NotionIcon>
-                <NotionText title={template.name} description={`${getKindLabel(template.kind)} · ${m.module_field_count({ count: template.fields.length })}`} />
+                <NotionText title={template.name} description={getKindLabel(template.kind)} />
+                {template.isSystemFixed ? (
+                  <LockKeyhole className="size-3.5 text-muted-foreground" />
+                ) : (
+                  <span
+                    className={template.includedInNewProjects ? "size-2 rounded-full bg-foreground/60" : "size-2 rounded-full bg-border"}
+                    aria-label={template.includedInNewProjects ? m.module_included() : m.module_excluded()}
+                  />
+                )}
               </button>
-              {template.isSystemFixed ? (
-                <span className="inline-flex size-7 items-center justify-center text-muted-foreground" aria-label={m.template_fixed_badge()}>
-                  <LockKeyhole size={13} />
-                </span>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={m.common_delete_named({ name: template.name })}
-                  disabled={isDeleting}
-                  onClick={() => onDelete(template.id)}
-                >
-                  <Trash2 size={14} />
-                </Button>
-              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    aria-label={m.common_reorder()}
+                  >
+                    <MoreHorizontal />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="min-w-36 bg-popover" align="end">
+                  <DropdownMenuItem disabled={index === 0} onSelect={() => onMoveTemplate(template.id, -1)}>
+                    <ArrowUp />
+                    {m.common_move_up()}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={index === items.length - 1}
+                    onSelect={() => onMoveTemplate(template.id, 1)}
+                  >
+                    <ArrowDown />
+                    {m.common_move_down()}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </NotionListRow>
         ))}
@@ -111,69 +125,63 @@ function TemplateListSection({
   );
 }
 
-export function ModuleTemplatesView({ onNavigate }: ModuleTemplatesViewProps) {
+export function ModuleTemplatesView({ selectedTemplateId }: ModuleTemplatesViewProps) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState<ModuleKind>("timeline");
-  const [selectedId, setSelectedId] = useState<string | undefined>();
+  const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
-
   const templates = useQuery({
     queryKey: queryKeys.moduleTemplates,
-    queryFn: () => apiRequest<ModuleTemplatesResponse>("/api/module-templates"),
+    queryFn: () => apiRequest<{ items: ModuleTemplate[] }>("/api/module-templates"),
   });
-
+  const members = useQuery({
+    queryKey: queryKeys.members,
+    queryFn: () => apiRequest<{ items: TenantMember[] }>("/api/members"),
+  });
   const items = useMemo(() => templates.data?.items ?? [], [templates.data?.items]);
   const fixedItems = useMemo(() => items.filter((template) => template.isSystemFixed), [items]);
   const customItems = useMemo(() => items.filter((template) => !template.isSystemFixed), [items]);
-  const selectedTemplate = items.find((template) => template.id === selectedId) ?? items[0];
+  const orderedItems = useMemo(() => [...fixedItems, ...customItems], [customItems, fixedItems]);
+  const selectedTemplate = items.find((template) => template.id === selectedTemplateId) ?? items[0];
 
   useEffect(() => {
-    if (!selectedId && items[0]) {
-      setSelectedId(items[0].id);
-      return;
+    if (templates.data && selectedTemplate && selectedTemplateId !== selectedTemplate.id) {
+      void navigate({
+        to: "/settings/new-project/modules/$templateId",
+        params: { templateId: selectedTemplate.id },
+        replace: true,
+      });
     }
-    if (selectedId && items.length > 0 && !items.some((template) => template.id === selectedId)) {
-      setSelectedId(items[0]?.id);
-    }
-  }, [items, selectedId]);
-
-  useEffect(() => {
-    setUpdateError(null);
-    setFieldError(null);
-  }, [selectedId]);
+  }, [navigate, selectedTemplate, selectedTemplateId, templates.data]);
 
   const createTemplate = useMutation({
-    mutationFn: (templateName: string) =>
+    mutationFn: (payload: { name: string; kind: ModuleKind }) =>
       apiRequest<ModuleTemplate>("/api/module-templates", {
         method: "POST",
-        body: {
-          key: slugifyKey(templateName) || `module-${Date.now()}`,
-          name: templateName,
-          kind,
-        },
+        body: { key: slugifyKey(payload.name) || `module-${Date.now()}`, name: payload.name, kind: payload.kind },
       }),
-    async onSuccess(template) {
-      setName("");
+    onMutate() {
       setCreateError(null);
-      setSelectedId(template.id);
+    },
+    async onSuccess(template) {
+      setCreateError(null);
+      setCreateOpen(false);
       await queryClient.invalidateQueries({ queryKey: queryKeys.moduleTemplates });
+      await navigate({ to: "/settings/new-project/modules/$templateId", params: { templateId: template.id } });
     },
     onError(error) {
       setCreateError(error instanceof ApiClientError ? error.message : m.module_create_template_error());
     },
   });
-
   const updateTemplate = useMutation({
     mutationFn: ({ templateId, payload }: { templateId: string; payload: TemplateUpdatePayload }) =>
-      apiRequest<ModuleTemplate>(`/api/module-templates/${templateId}`, {
-        method: "PATCH",
-        body: payload,
-      }),
-    async onSuccess(template) {
-      setSelectedId(template.id);
+      apiRequest<ModuleTemplate>(`/api/module-templates/${templateId}`, { method: "PATCH", body: payload }),
+    onMutate() {
+      setUpdateError(null);
+    },
+    async onSuccess() {
       setUpdateError(null);
       await queryClient.invalidateQueries({ queryKey: queryKeys.moduleTemplates });
     },
@@ -181,13 +189,12 @@ export function ModuleTemplatesView({ onNavigate }: ModuleTemplatesViewProps) {
       setUpdateError(error instanceof ApiClientError ? error.message : m.template_update_error());
     },
   });
-
   const saveField = useMutation({
     mutationFn: ({ templateId, payload }: { templateId: string; payload: FieldPayload }) =>
-      apiRequest(`/api/module-templates/${templateId}/fields`, {
-        method: "POST",
-        body: payload,
-      }),
+      apiRequest(`/api/module-templates/${templateId}/fields`, { method: "POST", body: payload }),
+    onMutate() {
+      setFieldError(null);
+    },
     async onSuccess() {
       setFieldError(null);
       await queryClient.invalidateQueries({ queryKey: queryKeys.moduleTemplates });
@@ -196,111 +203,226 @@ export function ModuleTemplatesView({ onNavigate }: ModuleTemplatesViewProps) {
       setFieldError(error instanceof ApiClientError ? error.message : m.field_save_error());
     },
   });
-
   const deleteField = useMutation({
     mutationFn: ({ templateId, fieldId }: { templateId: string; fieldId: string }) =>
-      apiRequest(`/api/module-templates/${templateId}/fields/${fieldId}`, {
-        method: "DELETE",
-      }),
-    async onSuccess() {
+      apiRequest(`/api/module-templates/${templateId}/fields/${fieldId}`, { method: "DELETE" }),
+    onMutate() {
       setFieldError(null);
+    },
+    async onSuccess() {
       await queryClient.invalidateQueries({ queryKey: queryKeys.moduleTemplates });
     },
     onError(error) {
       setFieldError(error instanceof ApiClientError ? error.message : m.field_delete_error());
     },
   });
-
   const deleteTemplate = useMutation({
-    mutationFn: (templateId: string) =>
-      apiRequest(`/api/module-templates/${templateId}`, {
-        method: "DELETE",
-      }),
+    mutationFn: (templateId: string) => apiRequest(`/api/module-templates/${templateId}`, { method: "DELETE" }),
+    async onSuccess() {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.moduleTemplates });
+      await navigate({ to: "/settings/new-project", replace: true });
+    },
+    onError(error) {
+      setUpdateError(error instanceof ApiClientError ? error.message : m.template_update_error());
+    },
+  });
+  const reorderTemplates = useMutation({
+    mutationFn: (ids: string[]) => apiRequest("/api/module-templates/reorder", { method: "POST", body: { ids } }),
     async onSuccess() {
       await queryClient.invalidateQueries({ queryKey: queryKeys.moduleTemplates });
     },
+    onError(error) {
+      setUpdateError(error instanceof ApiClientError ? error.message : m.template_update_error());
+    },
   });
+  const reorderFields = useMutation({
+    mutationFn: ({ templateId, ids }: { templateId: string; ids: string[] }) =>
+      apiRequest(`/api/module-templates/${templateId}/fields/reorder`, { method: "POST", body: { ids } }),
+    async onSuccess() {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.moduleTemplates });
+    },
+    onError(error) {
+      setFieldError(error instanceof ApiClientError ? error.message : m.field_save_error());
+    },
+  });
+  const resetTemplate = useMutation({
+    mutationFn: (templateId: string) => apiRequest(`/api/module-templates/${templateId}/reset`, { method: "POST" }),
+    onMutate() {
+      setUpdateError(null);
+    },
+    async onSuccess() {
+      setUpdateError(null);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.moduleTemplates });
+    },
+    onError(error) {
+      setUpdateError(error instanceof ApiClientError ? error.message : m.template_update_error());
+    },
+  });
+
+  useEffect(() => {
+    setUpdateError(null);
+    setFieldError(null);
+    updateTemplate.reset();
+    saveField.reset();
+    deleteField.reset();
+  }, [selectedTemplate?.id]);
+
+  function moveTemplate(draggedId: string, targetId: string) {
+    const ids = orderedItems.map((item) => item.id);
+    const from = ids.indexOf(draggedId);
+    const to = ids.indexOf(targetId);
+    ids.splice(to, 0, ids.splice(from, 1)[0]!);
+    reorderTemplates.mutate(ids);
+  }
+
+  function moveTemplateByOffset(templateId: string, sectionItems: ModuleTemplate[], offset: -1 | 1) {
+    const index = sectionItems.findIndex((item) => item.id === templateId);
+    const target = sectionItems[index + offset];
+    if (target) moveTemplate(templateId, target.id);
+  }
 
   return (
     <main className="template-shell">
-      <NotionToolbar>
-        <Button variant="ghost" size="icon" aria-label={m.common_back_home()} onClick={() => onNavigate({ type: "home" })}>
-          <ArrowLeft size={16} />
-        </Button>
-        <NotionIcon>
-          <LayoutList size={14} />
-        </NotionIcon>
-        <strong className="text-[13px] font-semibold">{m.module_templates_title()}</strong>
+      <NotionToolbar className="justify-between px-3">
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" aria-label={m.common_back_home()} onClick={() => void navigate({ to: "/" })}>
+            <ArrowLeft />
+          </Button>
+          <strong className="text-sm font-semibold">{m.module_templates_title()}</strong>
+        </div>
+        <AccountMenu />
       </NotionToolbar>
 
-      <section className="template-page">
-        <PageTitle icon={<Boxes size={22} />} title={m.module_templates_title()} description={m.module_templates_description()} />
-
-        <div className="grid grid-cols-[260px_minmax(0,1fr)] gap-8 max-[860px]:grid-cols-1">
-          <aside className="grid content-start gap-5">
-            {templates.isLoading ? (
-              <NotionEmpty>{m.module_templates_loading()}</NotionEmpty>
-            ) : items.length > 0 ? (
-              <>
-                <TemplateListSection
-                  title={m.template_fixed_section()}
-                  items={fixedItems}
-                  selectedId={selectedTemplate?.id}
-                  isDeleting={deleteTemplate.isPending}
-                  onSelect={setSelectedId}
-                  onDelete={(templateId) => deleteTemplate.mutate(templateId)}
-                />
-                <TemplateListSection
-                  title={m.template_custom_section()}
-                  items={customItems}
-                  selectedId={selectedTemplate?.id}
-                  isDeleting={deleteTemplate.isPending}
-                  onSelect={setSelectedId}
-                  onDelete={(templateId) => deleteTemplate.mutate(templateId)}
-                />
-              </>
-            ) : (
-              <NotionEmpty>{m.module_no_templates()}</NotionEmpty>
-            )}
-
-            <div className="grid gap-2">
-              <NotionSegmentedControl role="group" aria-label={m.module_type_aria()}>
-                {moduleKinds.map((option) => (
-                  <NotionSegmentedButton key={option} type="button" active={kind === option} onClick={() => setKind(option)}>
-                    {getKindLabel(option)}
-                  </NotionSegmentedButton>
-                ))}
-              </NotionSegmentedControl>
-              <NotionCreateRow
-                value={name}
-                onValueChange={(value) => {
-                  setName(value);
-                  setCreateError(null);
-                }}
-                onCreate={() => createTemplate.mutate(name.trim() || m.template_untitled())}
-                placeholder={m.template_create_placeholder()}
-                ariaLabel={m.template_create_aria()}
-                isPending={createTemplate.isPending}
-                error={createError}
-                className="items-start"
-              >
-                <Input value={slugifyKey(name)} readOnly aria-label={m.module_key_aria()} placeholder="module-key" className="h-6 text-xs text-muted-foreground" />
-              </NotionCreateRow>
-            </div>
+      <section className="mx-auto grid w-[min(1120px,calc(100vw-32px))] gap-8 py-12">
+        <div className="flex items-end justify-between gap-4">
+          <PageTitle
+            icon={<LayoutList />}
+            title={m.module_templates_title()}
+            description={m.module_templates_description()}
+          />
+          <Button
+            size="sm"
+            onClick={() => {
+              setCreateError(null);
+              setCreateOpen(true);
+            }}
+          >
+            <Plus />{m.module_new()}
+          </Button>
+        </div>
+        <div className="grid min-h-[560px] grid-cols-[248px_minmax(0,1fr)] gap-10 max-[800px]:grid-cols-1">
+          <aside className="grid content-start gap-5 border-r border-border pr-5 max-[800px]:border-r-0 max-[800px]:border-b max-[800px]:pr-0 max-[800px]:pb-5">
+            {templates.isLoading ? <NotionEmpty>{m.module_templates_loading()}</NotionEmpty> : null}
+            <TemplateListSection
+              title={m.template_fixed_section()}
+              items={fixedItems}
+              selectedId={selectedTemplate?.id}
+              onDropTemplate={moveTemplate}
+              onMoveTemplate={(templateId, offset) => moveTemplateByOffset(templateId, fixedItems, offset)}
+              onSelect={(templateId) => void navigate({ to: "/settings/new-project/modules/$templateId", params: { templateId } })}
+            />
+            <TemplateListSection
+              title={m.template_custom_section()}
+              items={customItems}
+              selectedId={selectedTemplate?.id}
+              onDropTemplate={moveTemplate}
+              onMoveTemplate={(templateId, offset) => moveTemplateByOffset(templateId, customItems, offset)}
+              onSelect={(templateId) => void navigate({ to: "/settings/new-project/modules/$templateId", params: { templateId } })}
+            />
           </aside>
-
           <ModuleTemplateEditor
             template={selectedTemplate}
+            members={members.data?.items ?? []}
             isUpdating={updateTemplate.isPending}
             updateError={updateError}
-            isSavingField={saveField.isPending}
+            isSavingField={saveField.isPending || deleteField.isPending}
             fieldError={fieldError}
             onUpdate={(templateId, payload) => updateTemplate.mutate({ templateId, payload })}
-            onSaveField={(templateId, payload) => saveField.mutate({ templateId, payload })}
+            onSaveField={async (templateId, payload) => {
+              await saveField.mutateAsync({ templateId, payload });
+            }}
             onDeleteField={(templateId, fieldId) => deleteField.mutate({ templateId, fieldId })}
+            onDeleteTemplate={(templateId) => deleteTemplate.mutate(templateId)}
+            onResetTemplate={(templateId) => resetTemplate.mutate(templateId)}
+            onReorderFields={(templateId, ids) => reorderFields.mutate({ templateId, ids })}
+            onBeginUpdate={() => {
+              setUpdateError(null);
+              updateTemplate.reset();
+            }}
+            onBeginFieldEdit={() => {
+              setFieldError(null);
+              saveField.reset();
+              deleteField.reset();
+            }}
           />
         </div>
       </section>
+      <CreateModuleDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        error={createError}
+        isPending={createTemplate.isPending}
+        onCreate={(name, kind) => createTemplate.mutate({ name, kind })}
+      />
     </main>
+  );
+}
+
+function CreateModuleDialog({
+  open,
+  onOpenChange,
+  error,
+  isPending,
+  onCreate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  error: string | null;
+  isPending: boolean;
+  onCreate: (name: string, kind: ModuleKind) => void;
+}) {
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<ModuleKind>("timeline");
+  useEffect(() => {
+    if (!open) {
+      setName("");
+      setKind("timeline");
+    }
+  }, [open]);
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && isPending) return;
+        onOpenChange(nextOpen);
+      }}
+    >
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>{m.module_new()}</DialogTitle>
+          <DialogDescription>{m.module_settings_scope()}</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <label className="grid gap-1.5 text-sm font-medium">
+            {m.template_name_label()}
+            <Input value={name} autoFocus onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label className="grid gap-1.5 text-sm font-medium">
+            {m.module_type_aria()}
+            <Select value={kind} onValueChange={(value) => setKind(value as ModuleKind)}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {moduleKinds.map((option) => <SelectItem key={option} value={option}>{getKindLabel(option)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </label>
+          {error ? <p className="m-0 text-sm text-destructive">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" disabled={isPending} onClick={() => onOpenChange(false)}>{m.common_cancel()}</Button>
+          <Button disabled={!name.trim() || isPending} onClick={() => onCreate(name.trim(), kind)}>{m.module_new()}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

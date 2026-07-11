@@ -4,7 +4,7 @@ export type TemplateFieldSeed = {
   label: string;
   type: string;
   required: boolean;
-  defaultPolicy: string;
+  defaultKind: string;
   defaultValue: unknown;
   options: Array<{ id: string; label: string; color?: string }>;
   sortKey: string;

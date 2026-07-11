@@ -27,8 +27,8 @@ export const moduleFieldTypeSchema = z.enum([
 ]);
 export type ModuleFieldType = z.infer<typeof moduleFieldTypeSchema>;
 
-export const fieldDefaultPolicySchema = z.enum(["empty", "fixed"]);
-export type FieldDefaultPolicy = z.infer<typeof fieldDefaultPolicySchema>;
+export const fieldDefaultKindSchema = z.enum(["none", "literal", "now", "today", "current_user"]);
+export type FieldDefaultKind = z.infer<typeof fieldDefaultKindSchema>;
 
 export const documentStatusSchema = z.enum(["active", "archived", "deleted"]);
 export type DocumentStatus = z.infer<typeof documentStatusSchema>;
@@ -36,8 +36,11 @@ export type DocumentStatus = z.infer<typeof documentStatusSchema>;
 export const documentVisibilitySchema = z.enum(["private", "tenant"]);
 export type DocumentVisibility = z.infer<typeof documentVisibilitySchema>;
 
-export const mediaStatusSchema = z.enum(["pending", "uploading", "active", "deleted", "failed"]);
+export const mediaStatusSchema = z.enum(["uploading", "active", "pending_delete", "deleting", "purged"]);
 export type MediaStatus = z.infer<typeof mediaStatusSchema>;
+
+export const mediaPurposeSchema = z.enum(["avatar", "inline", "attachment", "cover"]);
+export type MediaPurpose = z.infer<typeof mediaPurposeSchema>;
 
 export const mediaUsageResourceTypeSchema = z.enum(["user", "document", "document_block", "module_record"]);
 export type MediaUsageResourceType = z.infer<typeof mediaUsageResourceTypeSchema>;
@@ -69,6 +72,12 @@ export const userSchema = z.object({
   email: z.string().email(),
   displayName: z.string(),
   avatarMediaId: uuidSchema.nullable(),
+  avatar: z.object({
+    kind: z.enum(["generated", "uploaded"]),
+    url: z.string(),
+    version: z.string(),
+    byteSize: z.number().int().nonnegative().nullable(),
+  }),
 });
 export type User = z.infer<typeof userSchema>;
 
@@ -76,6 +85,7 @@ export const tenantSchema = z.object({
   id: uuidSchema,
   name: z.string(),
   kind: tenantKindSchema,
+  storageQuotaBytes: z.number().int().positive(),
 });
 export type Tenant = z.infer<typeof tenantSchema>;
 
@@ -86,6 +96,9 @@ export const meResponseSchema = z.object({
   authProvider: authProviderSchema.nullable().optional(),
 });
 export type MeResponse = z.infer<typeof meResponseSchema>;
+
+export const tenantMemberSchema = userSchema.pick({ id: true, email: true, displayName: true, avatar: true });
+export type TenantMember = z.infer<typeof tenantMemberSchema>;
 
 export const passwordLoginRequestSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
@@ -146,7 +159,7 @@ export const moduleFieldSchema = z.object({
   label: z.string().min(1),
   type: moduleFieldTypeSchema,
   required: z.boolean(),
-  defaultPolicy: fieldDefaultPolicySchema,
+  defaultKind: fieldDefaultKindSchema,
   defaultValue: z.unknown().nullable(),
   options: z.array(moduleFieldOptionSchema),
   sortKey: z.string(),
@@ -165,6 +178,7 @@ export const moduleTemplateSchema = z.object({
   kind: moduleKindSchema,
   description: z.string().nullable(),
   icon: z.string().nullable().optional(),
+  includedInNewProjects: z.boolean(),
   sortKey: z.string().optional(),
   fields: z.array(moduleTemplateFieldSchema),
 });
@@ -176,11 +190,17 @@ export const createModuleTemplateRequestSchema = z.object({
   kind: moduleKindSchema,
   description: z.string().trim().max(500).optional(),
   icon: z.string().trim().max(40).optional(),
+  includedInNewProjects: z.boolean().default(true),
 });
 export type CreateModuleTemplateRequest = z.infer<typeof createModuleTemplateRequestSchema>;
 
 export const updateModuleTemplateRequestSchema = createModuleTemplateRequestSchema.omit({ kind: true }).partial().strict();
 export type UpdateModuleTemplateRequest = z.infer<typeof updateModuleTemplateRequestSchema>;
+
+export const reorderRequestSchema = z.object({
+  ids: z.array(uuidSchema).min(1),
+});
+export type ReorderRequest = z.infer<typeof reorderRequestSchema>;
 
 export const projectModuleSchema = z.object({
   id: uuidSchema,
@@ -220,7 +240,7 @@ export const upsertModuleFieldRequestSchema = z.object({
   label: z.string().trim().min(1).max(120),
   type: moduleFieldTypeSchema,
   required: z.boolean().default(false),
-  defaultPolicy: fieldDefaultPolicySchema.default("empty"),
+  defaultKind: fieldDefaultKindSchema.default("none"),
   defaultValue: z.unknown().nullable().optional(),
   options: z.array(moduleFieldOptionSchema).default([]),
 });
@@ -251,10 +271,17 @@ export const createModuleRecordRequestSchema = z.object({
   title: z.string().trim().min(1).max(200),
   occurredAt: isoDateTimeSchema.optional(),
   values: moduleRecordValuesSchema.default({}),
+  timezoneOffsetMinutes: z.number().int().min(-840).max(840).default(0),
 });
 export type CreateModuleRecordRequest = z.infer<typeof createModuleRecordRequestSchema>;
 
-export const updateModuleRecordRequestSchema = createModuleRecordRequestSchema.partial();
+export const updateModuleRecordRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    occurredAt: isoDateTimeSchema.optional(),
+    values: moduleRecordValuesSchema.optional(),
+  })
+  .strict();
 export type UpdateModuleRecordRequest = z.infer<typeof updateModuleRecordRequestSchema>;
 
 export const documentSummarySchema = z.object({
@@ -405,6 +432,11 @@ export const mediaUploadResponseSchema = z.object({
 });
 export type MediaUploadResponse = z.infer<typeof mediaUploadResponseSchema>;
 
+export const mediaLimitsSchema = z.object({
+  avatarMaxBytes: z.number().int().positive(),
+});
+export type MediaLimits = z.infer<typeof mediaLimitsSchema>;
+
 export const completeMediaUploadUsageSchema = z.object({
   resourceType: z.literal("document"),
   resourceId: uuidSchema,
@@ -425,10 +457,26 @@ export const mediaObjectSchema = z.object({
   fileName: z.string(),
   mimeType: z.string(),
   byteSize: z.number().int(),
+  purpose: mediaPurposeSchema,
   status: mediaStatusSchema,
   createdAt: isoDateTimeSchema,
 });
 export type MediaObject = z.infer<typeof mediaObjectSchema>;
+
+export const storageSummarySchema = z.object({
+  quotaBytes: z.number().int().positive(),
+  usedBytes: z.number().int().nonnegative(),
+  reservedBytes: z.number().int().nonnegative(),
+  reclaimingBytes: z.number().int().nonnegative(),
+  availableBytes: z.number().int().nonnegative(),
+  breakdown: z.object({
+    avatar: z.number().int().nonnegative(),
+    inline: z.number().int().nonnegative(),
+    attachment: z.number().int().nonnegative(),
+    cover: z.number().int().nonnegative(),
+  }),
+});
+export type StorageSummary = z.infer<typeof storageSummarySchema>;
 
 export const contextPackSchema = z.object({
   project: z.object({

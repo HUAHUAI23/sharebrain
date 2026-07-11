@@ -6,7 +6,7 @@ export type FieldDefinition = {
   id: string;
   type: string;
   required: boolean;
-  defaultPolicy: string;
+  defaultKind: string;
   defaultValue: unknown;
   options?: Array<{ id: string; label: string; color?: string | undefined }>;
 };
@@ -14,14 +14,21 @@ export type FieldDefinition = {
 export type FieldDefinitionInput = {
   type: string;
   required: boolean;
-  defaultPolicy: string;
+  defaultKind: string;
   defaultValue?: unknown;
   options: Array<{ id: string; label: string; color?: string | undefined }>;
+};
+
+export type FieldDefaultContext = {
+  now: Date;
+  userId: string;
+  timezoneOffsetMinutes: number;
 };
 
 function valueSchemaForField(field: Pick<FieldDefinition, "type"> & Partial<Pick<FieldDefinition, "required">>) {
   switch (field.type) {
     case "user":
+      return z.string().uuid();
     case "text":
       return field.required ? z.string().trim().min(1) : z.string();
     case "date":
@@ -72,13 +79,27 @@ export function validateFieldDefinitionInput(field: FieldDefinitionInput) {
     validateSelectOptions(options);
   }
 
-  const defaultPolicy = field.defaultPolicy;
-  if (defaultPolicy !== "empty" && defaultPolicy !== "fixed") {
-    throw new ApiError("FIELD_DEFAULT_POLICY_INVALID", "字段默认值策略无效。", 422);
+  const defaultKind = field.defaultKind;
+  const supportedDefaultKinds = new Set(["none", "literal", "now", "today", "current_user"]);
+  if (!supportedDefaultKinds.has(defaultKind)) {
+    throw new ApiError("FIELD_DEFAULT_KIND_INVALID", "字段默认值类型无效。", 422);
   }
 
-  let defaultValue = defaultPolicy === "fixed" ? field.defaultValue : null;
-  if (defaultPolicy === "fixed") {
+  const dynamicDefaultTypes: Record<string, string> = {
+    now: "datetime",
+    today: "date",
+    current_user: "user",
+  };
+  const requiredType = dynamicDefaultTypes[defaultKind];
+  if (requiredType && field.type !== requiredType) {
+    throw new ApiError("FIELD_DEFAULT_KIND_INVALID", "默认值类型与字段类型不匹配。", 422, {
+      defaultKind,
+      fieldType: field.type,
+    });
+  }
+
+  let defaultValue = defaultKind === "literal" ? field.defaultValue : null;
+  if (defaultKind === "literal") {
     const parsed = valueSchemaForField(field).safeParse(defaultValue);
     if (!parsed.success) {
       throw new ApiError("FIELD_DEFAULT_VALUE_INVALID", "字段默认值类型不匹配。", 422, parsed.error.flatten());
@@ -95,19 +116,39 @@ export function validateFieldDefinitionInput(field: FieldDefinitionInput) {
   };
 }
 
-function applyDefaultValue(field: FieldDefinition, values: Record<string, unknown>) {
+function resolveDefaultValue(field: FieldDefinition, context: FieldDefaultContext) {
+  if (field.defaultKind === "literal") {
+    return field.defaultValue;
+  }
+  if (field.defaultKind === "now") {
+    return context.now.toISOString();
+  }
+  if (field.defaultKind === "today") {
+    return new Date(context.now.getTime() - context.timezoneOffsetMinutes * 60_000).toISOString().slice(0, 10);
+  }
+  if (field.defaultKind === "current_user") {
+    return context.userId;
+  }
+  return undefined;
+}
+
+function applyDefaultValue(
+  field: FieldDefinition,
+  values: Record<string, unknown>,
+  context: FieldDefaultContext,
+) {
   if (Object.hasOwn(values, field.id)) {
     return values[field.id];
   }
 
-  if (field.defaultPolicy === "fixed") {
-    return field.defaultValue;
-  }
-
-  return undefined;
+  return resolveDefaultValue(field, context);
 }
 
-export function validateRecordValues(fields: FieldDefinition[], values: Record<string, unknown>) {
+export function validateRecordValues(
+  fields: FieldDefinition[],
+  values: Record<string, unknown>,
+  context: FieldDefaultContext,
+) {
   const allowed = new Set(fields.map((field) => field.id));
   const unknownKeys = Object.keys(values).filter((key) => !allowed.has(key));
   if (unknownKeys.length > 0) {
@@ -119,7 +160,7 @@ export function validateRecordValues(fields: FieldDefinition[], values: Record<s
   for (const field of fields) {
     const base = valueSchemaForField(field);
     shape[field.id] = field.required ? base : base.optional().nullable();
-    const value = applyDefaultValue(field, values);
+    const value = applyDefaultValue(field, values, context);
     if (value !== undefined) {
       normalizedValues[field.id] = value;
     }
@@ -145,4 +186,38 @@ export function validateRecordValues(fields: FieldDefinition[], values: Record<s
   }
 
   return parsed.data;
+}
+
+export function validateRecordValuePatch(
+  fields: FieldDefinition[],
+  values: Record<string, unknown>,
+) {
+  const fieldsById = new Map(fields.map((field) => [field.id, field]));
+  const unknownKeys = Object.keys(values).filter((key) => !fieldsById.has(key));
+  if (unknownKeys.length > 0) {
+    throw new ApiError("UNKNOWN_FIELD_VALUE", "记录包含未知字段值。", 422, { fieldIds: unknownKeys });
+  }
+
+  const normalizedValues: Record<string, unknown> = {};
+  for (const [fieldId, value] of Object.entries(values)) {
+    const field = fieldsById.get(fieldId)!;
+    const schema = field.required ? valueSchemaForField(field) : valueSchemaForField(field).nullable();
+    const parsed = schema.safeParse(value);
+    if (!parsed.success) {
+      throw new ApiError("FIELD_VALUE_INVALID", "记录字段值类型不匹配。", 422, {
+        fieldId,
+        ...parsed.error.flatten(),
+      });
+    }
+    if (
+      field.type === "select" &&
+      parsed.data !== null &&
+      !(field.options ?? []).some((option) => option.id === parsed.data)
+    ) {
+      throw new ApiError("FIELD_VALUE_INVALID", "select 字段值必须匹配已有选项。", 422, { fieldId });
+    }
+    normalizedValues[fieldId] = parsed.data;
+  }
+
+  return normalizedValues;
 }

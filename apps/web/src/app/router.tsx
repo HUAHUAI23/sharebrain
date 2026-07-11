@@ -13,6 +13,7 @@ import { apiRequest, queryKeys } from "../lib/api-client";
 import { HomeView } from "../features/home/home-view";
 import { ModuleTemplatesView } from "../features/modules/module-templates-view";
 import { ProjectView } from "../features/project/project-view";
+import { StorageView } from "../features/storage/storage-view";
 import { WorkspaceRoot } from "../features/workspace/workspace-root";
 import type { DocumentResponse, WorkspaceView } from "../features/workspace/workspace-types";
 
@@ -34,8 +35,20 @@ const homeRoute = createRoute({
 
 const moduleTemplatesRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "module-templates",
+  path: "settings/new-project",
   component: ModuleTemplatesRouteComponent,
+});
+
+const moduleTemplateDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "settings/new-project/modules/$templateId",
+  component: ModuleTemplateDetailRouteComponent,
+});
+
+const storageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "settings/storage",
+  component: StorageView,
 });
 
 const projectRoute = createRoute({
@@ -71,6 +84,8 @@ const recordDocumentRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   homeRoute,
   moduleTemplatesRoute,
+  moduleTemplateDetailRoute,
+  storageRoute,
   projectRoute,
   projectModuleRoute,
   documentLookupRoute,
@@ -100,8 +115,13 @@ function useWorkspaceNavigate() {
         return;
       }
 
-      if (view.type === "module-templates") {
-        void navigate({ to: "/module-templates" });
+      if (view.type === "new-project-settings") {
+        void navigate({ to: "/settings/new-project" });
+        return;
+      }
+
+      if (view.type === "storage-settings") {
+        void navigate({ to: "/settings/storage" });
         return;
       }
 
@@ -164,9 +184,12 @@ function HomeRouteComponent() {
 }
 
 function ModuleTemplatesRouteComponent() {
-  const onNavigate = useWorkspaceNavigate();
+  return <ModuleTemplatesView />;
+}
 
-  return <ModuleTemplatesView onNavigate={onNavigate} />;
+function ModuleTemplateDetailRouteComponent() {
+  const { templateId } = moduleTemplateDetailRoute.useParams();
+  return <ModuleTemplatesView selectedTemplateId={templateId} />;
 }
 
 function ProjectRouteComponent() {

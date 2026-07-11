@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   customType,
   index,
@@ -34,6 +35,7 @@ export const tenants = pgTable(
     tenantId: uuid("tenant_id").notNull(),
     name: text("name").notNull(),
     kind: text("kind").notNull().default("personal"),
+    storageQuotaBytes: bigint("storage_quota_bytes", { mode: "number" }).notNull().default(1024 * 1024 * 1024),
     createdBy: uuid("created_by").notNull(),
     updatedBy: uuid("updated_by").notNull(),
     ...timestamps,
@@ -225,7 +227,7 @@ export const systemModuleTemplateFields = pgTable(
     label: text("label").notNull(),
     type: text("type").notNull(),
     required: boolean("required").notNull().default(false),
-    defaultPolicy: text("default_policy").notNull().default("empty"),
+    defaultKind: text("default_kind").notNull().default("none"),
     defaultValue: jsonb("default_value").$type<unknown>(),
     options: jsonb("options").$type<Array<{ id: string; label: string; color?: string | undefined }>>().notNull().default(sql`'[]'::jsonb`),
     sortKey: text("sort_key").notNull(),
@@ -253,6 +255,7 @@ export const moduleTemplates = pgTable(
     kind: text("kind").notNull(),
     description: text("description"),
     icon: text("icon"),
+    includedInNewProjects: boolean("included_in_new_projects").notNull().default(true),
     sortKey: text("sort_key").notNull(),
     ...ownedColumns,
   },
@@ -276,7 +279,7 @@ export const moduleTemplateFields = pgTable(
     label: text("label").notNull(),
     type: text("type").notNull(),
     required: boolean("required").notNull().default(false),
-    defaultPolicy: text("default_policy").notNull().default("empty"),
+    defaultKind: text("default_kind").notNull().default("none"),
     defaultValue: jsonb("default_value").$type<unknown>(),
     options: jsonb("options").$type<Array<{ id: string; label: string; color?: string | undefined }>>().notNull().default(sql`'[]'::jsonb`),
     sortKey: text("sort_key").notNull(),
@@ -329,7 +332,7 @@ export const projectModuleFields = pgTable(
     label: text("label").notNull(),
     type: text("type").notNull(),
     required: boolean("required").notNull().default(false),
-    defaultPolicy: text("default_policy").notNull().default("empty"),
+    defaultKind: text("default_kind").notNull().default("none"),
     defaultValue: jsonb("default_value").$type<unknown>(),
     options: jsonb("options").$type<Array<{ id: string; label: string; color?: string | undefined }>>().notNull().default(sql`'[]'::jsonb`),
     sortKey: text("sort_key").notNull(),
@@ -593,15 +596,18 @@ export const mediaObjects = pgTable(
     fileName: text("file_name").notNull(),
     mimeType: text("mime_type").notNull(),
     byteSize: integer("byte_size").notNull(),
+    purpose: text("purpose").notNull(),
     checksum: text("checksum"),
-    status: text("status").notNull().default("pending"),
+    status: text("status").notNull().default("uploading"),
+    purgedAt: timestamp("purged_at", { withTimezone: true }),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(jsonbObjectDefault),
     ...ownedColumns,
   },
   (table) => [
     uniqueIndex("idx_media_objects_key_unique").on(table.bucket, table.objectKey),
     index("idx_media_objects_tenant").on(table.tenantId),
-    index("idx_media_objects_status").on(table.status),
+    index("idx_media_objects_tenant_status").on(table.tenantId, table.status),
+    index("idx_media_objects_tenant_purpose").on(table.tenantId, table.purpose),
     index("idx_media_objects_parent").on(table.parentMediaId),
   ],
 );
@@ -655,6 +661,30 @@ export const mediaUsages = pgTable(
     index("idx_media_usages_tenant").on(table.tenantId),
     index("idx_media_usages_media").on(table.mediaId),
     index("idx_media_usages_resource").on(table.resourceType, table.resourceId),
+  ],
+);
+
+export const mediaDeletionJobs = pgTable(
+  "media_deletion_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    mediaId: uuid("media_id")
+      .notNull()
+      .references(() => mediaObjects.id),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    lastError: text("last_error"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_media_deletion_jobs_media_unique").on(table.mediaId),
+    index("idx_media_deletion_jobs_status_next").on(table.status, table.nextAttemptAt),
+    index("idx_media_deletion_jobs_tenant").on(table.tenantId),
   ],
 );
 
