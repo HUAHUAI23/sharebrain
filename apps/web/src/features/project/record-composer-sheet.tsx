@@ -89,9 +89,9 @@ export function RecordComposerSheet({ open, onOpenChange, projectId, moduleId, f
         onOpenChange(nextOpen);
       }}
     >
-      <SheetContent className="w-full sm:max-w-[500px]">
-        <SheetHeader className="border-b border-border px-5 py-4">
-          <SheetTitle>{m.timeline_create_placeholder()}</SheetTitle>
+      <SheetContent className="w-full sm:max-w-[520px]">
+        <SheetHeader className="border-b border-border-subtle px-6 py-5">
+          <SheetTitle className="text-base">{m.timeline_create_placeholder()}</SheetTitle>
         </SheetHeader>
         <form
           className="flex min-h-0 flex-1 flex-col"
@@ -100,15 +100,15 @@ export function RecordComposerSheet({ open, onOpenChange, projectId, moduleId, f
             void form.handleSubmit();
           }}
         >
-          <div className="grid flex-1 content-start gap-5 overflow-y-auto px-5 py-5">
+          <div className="grid flex-1 content-start overflow-y-auto px-6 py-4">
             <form.Field name="title">
               {(field) => (
-                <Field>
+                <Field className="border-b border-border-subtle pb-5">
                   <FieldLabel htmlFor={field.name}>{m.template_name_label()}</FieldLabel>
                   <Input
                     id={field.name}
                     autoFocus
-                    className="h-9 border-input bg-background"
+                    className="h-10 border-input bg-background text-base"
                     value={field.state.value}
                     onChange={(event) => field.handleChange(event.target.value)}
                   />
@@ -117,9 +117,12 @@ export function RecordComposerSheet({ open, onOpenChange, projectId, moduleId, f
             </form.Field>
             <form.Field name="values">
               {(valuesField) => (
-                <div className="grid gap-5">
+                <div className="grid divide-y divide-border-subtle pt-2">
                   {fields.map((field) => (
-                    <Field key={field.id}>
+                    <Field
+                      className="grid grid-cols-[minmax(112px,0.42fr)_minmax(0,1fr)] items-center gap-4 py-3 max-[460px]:grid-cols-1 max-[460px]:gap-2"
+                      key={field.id}
+                    >
                       <FieldLabel htmlFor={`record-${field.id}`}>
                         {field.label}{field.required ? <span className="text-destructive">*</span> : null}
                       </FieldLabel>
@@ -146,7 +149,7 @@ export function RecordComposerSheet({ open, onOpenChange, projectId, moduleId, f
             </form.Field>
             {error ? <p className="m-0 text-sm text-destructive">{error}</p> : null}
           </div>
-          <SheetFooter className="flex-row justify-end border-t border-border px-5 py-4">
+          <SheetFooter className="flex-row justify-end border-t border-border-subtle px-6 py-4">
             <Button
               type="button"
               variant="ghost"

@@ -61,7 +61,7 @@ export function AccountMenu() {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="inline-flex size-8 items-center justify-center rounded-full border-0 bg-transparent outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-(--ring-soft)"
+            className="inline-flex size-8 items-center justify-center overflow-hidden rounded-full border-0 bg-transparent p-0 outline-none ring-1 ring-border transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-(--ring-soft)"
             aria-label={m.account_menu_label()}
           >
             <Avatar>
@@ -70,14 +70,18 @@ export function AccountMenu() {
             </Avatar>
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-80 bg-popover p-1.5" align="end" sideOffset={8}>
-          <DropdownMenuLabel className="grid grid-cols-[40px_minmax(0,1fr)] items-center gap-3 px-2 py-2 font-normal">
+        <DropdownMenuContent
+          className="w-72 max-w-[calc(100vw-24px)] bg-popover p-1"
+          align="end"
+          sideOffset={8}
+        >
+          <DropdownMenuLabel className="grid grid-cols-[36px_minmax(0,1fr)] items-center gap-2.5 px-2 py-2 font-normal">
             <Avatar size="lg">
               <AvatarImage src={user.avatar.url} alt={user.displayName} />
               <AvatarFallback>{user.displayName.slice(0, 1).toUpperCase()}</AvatarFallback>
             </Avatar>
-            <span className="grid min-w-0 gap-px">
-              <strong className="truncate text-sm font-semibold">{user.displayName}</strong>
+            <span className="grid min-w-0 gap-px leading-tight">
+              <strong className="truncate text-[13px] font-semibold">{user.displayName}</strong>
               <span className="truncate text-xs text-muted-foreground">{user.email}</span>
               <span className="truncate text-xs text-muted-foreground">
                 {tenant.name} · {me.data?.role === "admin" ? m.account_role_admin() : m.account_role_member()}
@@ -95,7 +99,7 @@ export function AccountMenu() {
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            className="grid grid-cols-[18px_minmax(0,1fr)] items-start py-2"
+            className="grid grid-cols-[18px_minmax(0,1fr)] items-start py-2.5"
             onSelect={() => void navigate({ to: "/settings/storage" })}
           >
             <Database className="mt-0.5" />

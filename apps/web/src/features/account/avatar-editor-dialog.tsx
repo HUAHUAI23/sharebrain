@@ -130,10 +130,10 @@ export function AvatarEditorDialog({ open, onOpenChange, user }: AvatarEditorDia
         onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="sm:max-w-[480px]">
-        <DialogHeader>
-          <DialogTitle>{m.avatar_dialog_title()}</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="max-h-[calc(100vh-2rem)] gap-5 overflow-y-auto sm:max-w-[520px]">
+        <DialogHeader className="gap-1 pr-8 text-left">
+          <DialogTitle className="leading-tight">{m.avatar_dialog_title()}</DialogTitle>
+          <DialogDescription className="leading-snug">
             {limits.data
               ? m.avatar_dialog_description({ size: formatBytes(limits.data.avatarMaxBytes) })
               : m.avatar_dialog_description_loading()}
@@ -142,7 +142,7 @@ export function AvatarEditorDialog({ open, onOpenChange, user }: AvatarEditorDia
 
         {sourceUrl ? (
           <div className="grid gap-4">
-            <div className="relative aspect-square w-full overflow-hidden rounded-md bg-muted">
+            <div className="relative mx-auto aspect-square w-full max-w-[380px] overflow-hidden rounded-md bg-muted">
               <Cropper
                 image={sourceUrl}
                 crop={crop}
@@ -155,38 +155,57 @@ export function AvatarEditorDialog({ open, onOpenChange, user }: AvatarEditorDia
                 onCropComplete={(_, pixels) => setCroppedArea(pixels)}
               />
             </div>
-            <label className="grid gap-2 text-sm font-medium">
+            <label className="mx-auto grid w-full max-w-[380px] gap-2 text-sm font-medium">
               <span>{m.avatar_zoom()}</span>
               <Slider value={[zoom]} min={1} max={3} step={0.05} onValueChange={([value]) => setZoom(value ?? 1)} />
             </label>
           </div>
         ) : (
-          <div className="flex min-h-56 items-center justify-center bg-muted/50">
-            <Avatar className="size-24">
-              <AvatarImage src={user.avatar.url} alt={user.displayName} />
-              <AvatarFallback>{user.displayName.slice(0, 1).toUpperCase()}</AvatarFallback>
-            </Avatar>
+          <div className="grid grid-cols-[144px_minmax(0,1fr)] items-center gap-5 max-[520px]:grid-cols-1">
+            <div className="flex aspect-square items-center justify-center rounded-md bg-muted/60 max-[520px]:w-44 max-[520px]:justify-self-center">
+              <Avatar className="size-24 ring-1 ring-border">
+                <AvatarImage src={user.avatar.url} alt={user.displayName} />
+                <AvatarFallback>{user.displayName.slice(0, 1).toUpperCase()}</AvatarFallback>
+              </Avatar>
+            </div>
+            <div className="grid min-w-0 gap-3">
+              <div className="grid gap-0.5">
+                <span className="text-xs text-muted-foreground">{m.avatar_current_size()}</span>
+                <strong className="truncate text-sm font-medium">
+                  {user.avatar.byteSize === null ? m.avatar_generated_size() : formatBytes(user.avatar.byteSize)}
+                </strong>
+              </div>
+              <div className="h-px bg-border-subtle" />
+              <div className="grid gap-0.5">
+                <span className="text-xs text-muted-foreground">{m.storage_available()}</span>
+                <strong className="truncate text-sm font-medium">
+                  {storage.data ? formatBytes(storage.data.availableBytes) : m.storage_loading_short()}
+                </strong>
+              </div>
+            </div>
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4 border-y border-border py-3 text-sm max-[420px]:grid-cols-1">
-          <div className="grid gap-0.5">
-            <span className="text-xs text-muted-foreground">{m.avatar_current_size()}</span>
-            <strong className="font-medium">
-              {user.avatar.byteSize === null ? m.avatar_generated_size() : formatBytes(user.avatar.byteSize)}
-            </strong>
+        {sourceUrl ? (
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md bg-border-subtle max-[420px]:grid-cols-1">
+            <div className="grid gap-0.5 bg-muted/50 px-3 py-2.5">
+              <span className="text-xs text-muted-foreground">{m.avatar_current_size()}</span>
+              <strong className="truncate text-sm font-medium">
+                {user.avatar.byteSize === null ? m.avatar_generated_size() : formatBytes(user.avatar.byteSize)}
+              </strong>
+            </div>
+            <div className="grid gap-0.5 bg-muted/50 px-3 py-2.5">
+              <span className="text-xs text-muted-foreground">{m.storage_available()}</span>
+              <strong className="truncate text-sm font-medium">
+                {storage.data ? formatBytes(storage.data.availableBytes) : m.storage_loading_short()}
+              </strong>
+            </div>
           </div>
-          <div className="grid gap-0.5">
-            <span className="text-xs text-muted-foreground">{m.storage_available()}</span>
-            <strong className="font-medium">
-              {storage.data ? formatBytes(storage.data.availableBytes) : m.storage_loading_short()}
-            </strong>
-          </div>
-        </div>
+        ) : null}
 
         {error ? <p className="m-0 text-sm text-destructive">{error}</p> : null}
 
-        <DialogFooter className="items-center sm:justify-between">
+        <DialogFooter className="items-stretch border-t border-border-subtle pt-4 sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
             <Button asChild type="button" variant="outline" disabled={isPending}>
               <label>

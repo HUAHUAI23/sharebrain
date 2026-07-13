@@ -14,12 +14,20 @@ import { Button } from "@sharebrain/ui/components/button";
 import { NotionEmpty, NotionIcon, NotionList, NotionListRow, NotionText } from "@sharebrain/ui/components/notion";
 import {
   Braces,
+  CalendarDays,
   ChevronDown,
   ChevronUp,
+  Clock3,
   GripVertical,
+  Hash,
+  Link2,
+  ListFilter,
   Plus,
   RotateCcw,
+  TextCursorInput,
+  ToggleLeft,
   Trash2,
+  UserRound,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -27,7 +35,7 @@ import { FieldEditorSheet, getDefaultSummary } from "./field-editor-sheet";
 import { getFieldTypeLabel, getKindLabel } from "./module-template-utils";
 import { TemplateIdentityForm } from "./template-identity-form";
 
-import type { ModuleTemplate, ModuleTemplateField, TenantMember } from "@sharebrain/contracts";
+import type { ModuleFieldType, ModuleTemplate, ModuleTemplateField, TenantMember } from "@sharebrain/contracts";
 import type { FieldPayload, TemplateUpdatePayload } from "./module-template-editor.types";
 
 type ModuleTemplateEditorProps = {
@@ -46,6 +54,18 @@ type ModuleTemplateEditorProps = {
   onBeginUpdate: () => void;
   onBeginFieldEdit: () => void;
 };
+
+function fieldIcon(type: ModuleFieldType) {
+  if (type === "number") return <Hash />;
+  if (type === "date") return <CalendarDays />;
+  if (type === "datetime") return <Clock3 />;
+  if (type === "boolean") return <ToggleLeft />;
+  if (type === "url") return <Link2 />;
+  if (type === "select") return <ListFilter />;
+  if (type === "user") return <UserRound />;
+  if (type === "text") return <TextCursorInput />;
+  return <Braces />;
+}
 
 export function ModuleTemplateEditor({
   template,
@@ -71,10 +91,10 @@ export function ModuleTemplateEditor({
 
   return (
     <section className="min-w-0">
-      <div className="flex items-start justify-between gap-4 border-b border-border pb-5">
+      <div className="flex items-start justify-between gap-4 pb-2">
         <div className="grid min-w-0 gap-1">
           <div className="flex items-center gap-2">
-            <h2 className="m-0 truncate text-xl font-semibold tracking-normal">{template.name}</h2>
+            <h2 className="m-0 truncate text-lg font-semibold tracking-normal">{template.name}</h2>
             {template.isSystemFixed ? (
               <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
                 {m.template_fixed_badge()}
@@ -135,7 +155,7 @@ export function ModuleTemplateEditor({
       />
 
       {template.kind === "timeline" ? (
-        <section className="grid gap-3 border-t border-border py-6">
+        <section className="grid gap-3 pt-4 pb-6">
           <div className="flex items-center justify-between gap-4">
             <div className="grid gap-px">
               <h3 className="m-0 text-sm font-semibold">{m.template_fields_title()}</h3>
@@ -155,46 +175,45 @@ export function ModuleTemplateEditor({
             </Button>
           </div>
           {template.fields.length ? (
-            <NotionList className="divide-y divide-border border-y border-border">
+            <NotionList className="divide-y divide-border-subtle">
               {template.fields.map((field, index) => {
                 const defaultSummary = getDefaultSummary(field);
                 return (
                   <NotionListRow
-                    asChild
                     key={field.id}
-                    className="grid-cols-[20px_28px_minmax(0,1fr)_96px] rounded-none px-1 py-2"
+                    className="group grid-cols-[20px_minmax(0,1fr)_96px] rounded-none px-1 py-1.5 hover:bg-accent"
+                    draggable
+                    onDragStart={() => setDraggedFieldId(field.id)}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={() => {
+                      if (!draggedFieldId || draggedFieldId === field.id) return;
+                      const ids = template.fields.map((item) => item.id);
+                      const from = ids.indexOf(draggedFieldId);
+                      const to = ids.indexOf(field.id);
+                      ids.splice(to, 0, ids.splice(from, 1)[0]!);
+                      onReorderFields(template.id, ids);
+                      setDraggedFieldId(undefined);
+                    }}
                   >
-                    <div
-                      draggable
-                      onDragStart={() => setDraggedFieldId(field.id)}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={() => {
-                        if (!draggedFieldId || draggedFieldId === field.id) return;
-                        const ids = template.fields.map((item) => item.id);
-                        const from = ids.indexOf(draggedFieldId);
-                        const to = ids.indexOf(field.id);
-                        ids.splice(to, 0, ids.splice(from, 1)[0]!);
-                        onReorderFields(template.id, ids);
-                        setDraggedFieldId(undefined);
+                    <GripVertical className="size-4 cursor-grab text-muted-foreground/35 transition-colors group-hover:text-muted-foreground/60" />
+                    <button
+                      type="button"
+                      className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] items-center gap-2 border-0 bg-transparent p-0 text-left"
+                      onClick={() => {
+                        onBeginFieldEdit();
+                        setEditingField(field);
+                        setFieldSheetOpen(true);
                       }}
                     >
-                      <GripVertical className="size-4 text-muted-foreground/60" />
-                      <button
-                        type="button"
-                        className="contents"
-                        onClick={() => {
-                          onBeginFieldEdit();
-                          setEditingField(field);
-                          setFieldSheetOpen(true);
-                        }}
-                      >
-                        <NotionIcon><Braces /></NotionIcon>
-                        <NotionText
-                          title={field.label}
-                          description={`${getFieldTypeLabel(field.type)}${defaultSummary ? ` · ${defaultSummary}` : ""}`}
-                        />
-                      </button>
-                      <div className="flex items-center justify-end">
+                      <NotionIcon className="bg-transparent text-muted-foreground">
+                        {fieldIcon(field.type)}
+                      </NotionIcon>
+                      <NotionText
+                        title={field.label}
+                        description={`${getFieldTypeLabel(field.type)}${defaultSummary ? ` · ${defaultSummary}` : ""}`}
+                      />
+                    </button>
+                    <div className="flex items-center justify-end opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-[800px]:opacity-100">
                         <Button
                           type="button"
                           variant="ghost"
@@ -251,7 +270,6 @@ export function ModuleTemplateEditor({
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-                      </div>
                     </div>
                   </NotionListRow>
                 );

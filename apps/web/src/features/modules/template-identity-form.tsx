@@ -1,16 +1,13 @@
 // 编辑初始模块身份和启用状态，所有字段使用同一次显式保存。
 import { m } from "@sharebrain/i18n";
 import { Button } from "@sharebrain/ui/components/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@sharebrain/ui/components/collapsible";
 import { Field, FieldGroup, FieldLabel } from "@sharebrain/ui/components/field";
 import { Input } from "@sharebrain/ui/components/input";
 import { Switch } from "@sharebrain/ui/components/switch";
 import { Textarea } from "@sharebrain/ui/components/textarea";
 import { useForm } from "@tanstack/react-form";
-import { Check, ChevronDown } from "lucide-react";
+import { Check } from "lucide-react";
 import { useEffect } from "react";
-
-import { slugifyKey } from "./module-template-utils";
 
 import type { ModuleTemplate } from "@sharebrain/contracts";
 import type { TemplateUpdatePayload } from "./module-template-editor.types";
@@ -36,9 +33,7 @@ export function TemplateIdentityForm({
       onUpdate(template.id, {
         name: value.name.trim(),
         description: value.description.trim(),
-        icon: value.icon.trim(),
         includedInNewProjects: value.includedInNewProjects,
-        ...(!template.isSystemFixed ? { key: slugifyKey(value.key) } : {}),
       });
     },
   });
@@ -48,15 +43,13 @@ export function TemplateIdentityForm({
   }, [
     form,
     template.description,
-    template.icon,
     template.includedInNewProjects,
-    template.key,
     template.name,
   ]);
 
   return (
     <form
-      className="grid gap-5 py-6"
+      className="grid max-w-3xl gap-5 py-6"
       onSubmit={(event) => {
         event.preventDefault();
         void form.handleSubmit();
@@ -91,6 +84,7 @@ export function TemplateIdentityForm({
               <FieldLabel htmlFor={field.name}>{m.template_description_label()}</FieldLabel>
               <Textarea
                 id={field.name}
+                className="min-h-20"
                 value={field.state.value}
                 onChange={(event) => {
                   onEdit();
@@ -102,7 +96,7 @@ export function TemplateIdentityForm({
         </form.Field>
         <form.Field name="includedInNewProjects">
           {(field) => (
-            <div className="flex items-center justify-between gap-4 py-1">
+            <div className="flex items-center justify-between gap-4 rounded-sm bg-muted/50 px-3 py-2.5">
               <div className="grid gap-px">
                 <span className="text-sm font-medium">{m.module_included()}</span>
                 <span className="text-xs text-muted-foreground">{m.module_settings_scope()}</span>
@@ -118,50 +112,11 @@ export function TemplateIdentityForm({
             </div>
           )}
         </form.Field>
-        <Collapsible>
-          <CollapsibleTrigger className="flex min-h-8 items-center gap-2 border-0 bg-transparent p-0 text-sm text-muted-foreground hover:text-foreground">
-            <ChevronDown className="size-4" />
-            {m.template_advanced()}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="grid grid-cols-2 gap-3 pt-3 max-[640px]:grid-cols-1">
-            <form.Field name="icon">
-              {(field) => (
-                <Field>
-                  <FieldLabel htmlFor={field.name}>{m.template_icon_label()}</FieldLabel>
-                  <Input
-                    id={field.name}
-                    value={field.state.value}
-                    onChange={(event) => {
-                      onEdit();
-                      field.handleChange(event.target.value);
-                    }}
-                  />
-                </Field>
-              )}
-            </form.Field>
-            <form.Field name="key">
-              {(field) => (
-                <Field>
-                  <FieldLabel htmlFor={field.name}>{m.field_key_label()}</FieldLabel>
-                  <Input
-                    id={field.name}
-                    value={field.state.value}
-                    disabled={template.isSystemFixed}
-                    onChange={(event) => {
-                      onEdit();
-                      field.handleChange(event.target.value);
-                    }}
-                  />
-                </Field>
-              )}
-            </form.Field>
-          </CollapsibleContent>
-        </Collapsible>
       </FieldGroup>
       {error ? <p className="m-0 text-sm text-destructive">{error}</p> : null}
       <form.Subscribe selector={(state) => [state.canSubmit, state.isDirty]}>
         {([canSubmit, isDirty]) => (
-          <Button className="w-fit" size="sm" type="submit" disabled={!canSubmit || !isDirty || isUpdating}>
+          <Button className="ml-auto w-fit" size="sm" type="submit" disabled={!canSubmit || !isDirty || isUpdating}>
             <Check />
             {m.common_save()}
           </Button>
@@ -175,8 +130,6 @@ function toIdentityDraft(template: ModuleTemplate) {
   return {
     name: template.name,
     description: template.description ?? "",
-    icon: template.icon ?? "",
-    key: template.key,
     includedInNewProjects: template.includedInNewProjects,
   };
 }

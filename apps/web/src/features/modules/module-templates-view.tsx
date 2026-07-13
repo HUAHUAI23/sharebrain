@@ -63,61 +63,62 @@ function TemplateListSection({
       <NotionList>
         {items.map((template, index) => (
           <NotionListRow
-            asChild
             key={template.id}
             active={selectedId === template.id}
-            className="grid-cols-[18px_28px_minmax(0,1fr)_20px_28px] px-1 py-1.5"
+            className="group grid-cols-[18px_minmax(0,1fr)_28px] px-1 py-1 hover:bg-accent"
+            draggable
+            onDragStart={() => setDraggedId(template.id)}
+            onDragEnd={() => setDraggedId(undefined)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={() => {
+              if (draggedId && draggedId !== template.id) onDropTemplate(draggedId, template.id);
+              setDraggedId(undefined);
+            }}
           >
-            <div
-              draggable
-              onDragStart={() => setDraggedId(template.id)}
-              onDragEnd={() => setDraggedId(undefined)}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={() => {
-                if (draggedId && draggedId !== template.id) onDropTemplate(draggedId, template.id);
-                setDraggedId(undefined);
-              }}
+            <GripVertical className="size-4 cursor-grab text-muted-foreground/50" />
+            <button
+              type="button"
+              className={`grid min-w-0 items-center gap-2 border-0 bg-transparent p-0 text-left ${
+                template.isSystemFixed
+                  ? "grid-cols-[28px_minmax(0,1fr)_16px]"
+                  : "grid-cols-[28px_minmax(0,1fr)]"
+              }`}
+              onClick={() => onSelect(template.id)}
             >
-              <GripVertical className="size-4 cursor-grab text-muted-foreground/60" />
-              <button type="button" className="contents" onClick={() => onSelect(template.id)}>
-                <NotionIcon>{templateIcon(template)}</NotionIcon>
-                <NotionText title={template.name} description={getKindLabel(template.kind)} />
-                {template.isSystemFixed ? (
-                  <LockKeyhole className="size-3.5 text-muted-foreground" />
-                ) : (
-                  <span
-                    className={template.includedInNewProjects ? "size-2 rounded-full bg-foreground/60" : "size-2 rounded-full bg-border"}
-                    aria-label={template.includedInNewProjects ? m.module_included() : m.module_excluded()}
-                  />
-                )}
-              </button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-7"
-                    aria-label={m.common_reorder()}
-                  >
-                    <MoreHorizontal />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="min-w-36 bg-popover" align="end">
-                  <DropdownMenuItem disabled={index === 0} onSelect={() => onMoveTemplate(template.id, -1)}>
-                    <ArrowUp />
-                    {m.common_move_up()}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={index === items.length - 1}
-                    onSelect={() => onMoveTemplate(template.id, 1)}
-                  >
-                    <ArrowDown />
-                    {m.common_move_down()}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+              <NotionIcon className="bg-transparent text-muted-foreground">
+                {templateIcon(template)}
+              </NotionIcon>
+              <NotionText title={template.name} description={getKindLabel(template.kind)} />
+              {template.isSystemFixed ? (
+                <LockKeyhole className="size-3.5 text-muted-foreground" />
+              ) : null}
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  aria-label={m.common_reorder()}
+                >
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="min-w-36 bg-popover" align="end">
+                <DropdownMenuItem disabled={index === 0} onSelect={() => onMoveTemplate(template.id, -1)}>
+                  <ArrowUp />
+                  {m.common_move_up()}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={index === items.length - 1}
+                  onSelect={() => onMoveTemplate(template.id, 1)}
+                >
+                  <ArrowDown />
+                  {m.common_move_down()}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </NotionListRow>
         ))}
       </NotionList>
@@ -293,10 +294,10 @@ export function ModuleTemplatesView({ selectedTemplateId }: ModuleTemplatesViewP
         <AccountMenu />
       </NotionToolbar>
 
-      <section className="mx-auto grid w-[min(1120px,calc(100vw-32px))] gap-8 py-12">
+      <section className="mx-auto grid w-[min(1200px,calc(100vw-32px))] gap-6 py-7 max-[640px]:w-[calc(100vw-24px)] max-[640px]:py-5">
         <div className="flex items-end justify-between gap-4">
           <PageTitle
-            icon={<LayoutList />}
+            className="mb-0"
             title={m.module_templates_title()}
             description={m.module_templates_description()}
           />
@@ -310,8 +311,8 @@ export function ModuleTemplatesView({ selectedTemplateId }: ModuleTemplatesViewP
             <Plus />{m.module_new()}
           </Button>
         </div>
-        <div className="grid min-h-[560px] grid-cols-[248px_minmax(0,1fr)] gap-10 max-[800px]:grid-cols-1">
-          <aside className="grid content-start gap-5 border-r border-border pr-5 max-[800px]:border-r-0 max-[800px]:border-b max-[800px]:pr-0 max-[800px]:pb-5">
+        <div className="grid min-h-[560px] grid-cols-[248px_minmax(0,1fr)] gap-10 max-[800px]:grid-cols-1 max-[800px]:gap-7">
+          <aside className="grid content-start gap-6 max-[800px]:max-h-72 max-[800px]:overflow-y-auto max-[800px]:pb-2">
             {templates.isLoading ? <NotionEmpty>{m.module_templates_loading()}</NotionEmpty> : null}
             <TemplateListSection
               title={m.template_fixed_section()}
@@ -398,7 +399,7 @@ function CreateModuleDialog({
       }}
     >
       <DialogContent className="sm:max-w-[440px]">
-        <DialogHeader>
+        <DialogHeader className="pr-8 text-left">
           <DialogTitle>{m.module_new()}</DialogTitle>
           <DialogDescription>{m.module_settings_scope()}</DialogDescription>
         </DialogHeader>

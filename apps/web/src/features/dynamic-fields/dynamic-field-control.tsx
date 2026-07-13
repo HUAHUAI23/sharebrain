@@ -65,7 +65,7 @@ export function DynamicFieldControl({
 }: DynamicFieldControlProps) {
   if (type === "boolean") {
     return (
-      <div className="flex min-h-9 items-center justify-between rounded-md border border-input bg-background px-3">
+      <div className="flex min-h-9 items-center justify-between rounded-sm bg-muted/60 px-2.5">
         <span className="text-sm text-muted-foreground">{value === true ? m.common_yes() : m.common_no()}</span>
         <Switch checked={value === true} disabled={disabled} onCheckedChange={onValueChange} />
       </div>

@@ -11,5 +11,6 @@ export function renderGeneratedAvatar(seed: string) {
   return new Avatar(avatarStyle, {
     seed,
     size: 128,
+    mouthVariant: "variant04",
   }).toString();
 }

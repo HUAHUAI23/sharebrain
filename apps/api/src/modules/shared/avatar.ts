@@ -6,7 +6,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import type { DatabaseClient } from "@sharebrain/db";
 import type { users } from "@sharebrain/db/schema";
 
-export const GENERATED_AVATAR_VERSION = "notionists-neutral-v1";
+export const GENERATED_AVATAR_VERSION = "notionists-neutral-v2";
 
 export function createGeneratedAvatarDescriptor(userId: string): User["avatar"] {
   return {

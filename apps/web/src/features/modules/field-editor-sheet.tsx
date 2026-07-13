@@ -2,13 +2,12 @@
 import { m } from "@sharebrain/i18n";
 import { Button } from "@sharebrain/ui/components/button";
 import { Checkbox } from "@sharebrain/ui/components/checkbox";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@sharebrain/ui/components/collapsible";
 import { Field, FieldLabel } from "@sharebrain/ui/components/field";
 import { Input } from "@sharebrain/ui/components/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@sharebrain/ui/components/select";
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from "@sharebrain/ui/components/sheet";
 import { useForm } from "@tanstack/react-form";
-import { Check, ChevronDown, ListPlus, Trash2 } from "lucide-react";
+import { Check, ListPlus, Trash2 } from "lucide-react";
 import { useEffect } from "react";
 
 import { DynamicFieldControl, formatModuleFieldValue } from "../dynamic-fields/dynamic-field-control";
@@ -50,7 +49,7 @@ export function FieldEditorSheet({
       try {
         await onSave({
           ...(field ? { id: field.id } : {}),
-          key: slugifyKey(value.key) || slugifyKey(value.label) || `field-${Date.now()}`,
+          key: field?.key ?? (slugifyKey(value.label) || `field-${Date.now()}`),
           label: value.label.trim() || m.field_untitled(),
           type: value.type,
           required: value.required,
@@ -77,9 +76,9 @@ export function FieldEditorSheet({
         onOpenChange(nextOpen);
       }}
     >
-      <SheetContent className="w-full sm:max-w-[480px]">
-        <SheetHeader className="border-b border-border px-5 py-4">
-          <SheetTitle>{field ? m.field_edit_title() : m.field_create_title()}</SheetTitle>
+      <SheetContent className="w-full sm:max-w-[520px]">
+        <SheetHeader className="border-b border-border-subtle px-6 py-5">
+          <SheetTitle className="text-base">{field ? m.field_edit_title() : m.field_create_title()}</SheetTitle>
         </SheetHeader>
         <form
           className="flex min-h-0 flex-1 flex-col"
@@ -88,7 +87,7 @@ export function FieldEditorSheet({
             void form.handleSubmit();
           }}
         >
-          <div className="grid flex-1 content-start gap-5 overflow-y-auto px-5 py-5">
+          <div className="grid flex-1 content-start gap-5 overflow-y-auto px-6 py-5">
             <form.Field name="label">
               {(formField) => (
                 <Field>
@@ -129,7 +128,7 @@ export function FieldEditorSheet({
             </form.Field>
             <form.Field name="required">
               {(formField) => (
-                <label className="flex min-h-9 items-center gap-2 text-sm">
+                <label className="flex min-h-10 items-center gap-2 rounded-sm bg-muted/50 px-3 text-sm">
                   <Checkbox
                     checked={formField.state.value}
                     onCheckedChange={(checked) => {
@@ -249,32 +248,9 @@ export function FieldEditorSheet({
                 </form.Field>
               ) : null}
             </form.Subscribe>
-            <Collapsible>
-              <CollapsibleTrigger className="flex min-h-8 items-center gap-2 border-0 bg-transparent p-0 text-sm text-muted-foreground hover:text-foreground">
-                <ChevronDown className="size-4" />
-                {m.template_advanced()}
-              </CollapsibleTrigger>
-              <CollapsibleContent className="pt-3">
-                <form.Field name="key">
-                  {(formField) => (
-                    <Field>
-                      <FieldLabel htmlFor={formField.name}>{m.field_key_label()}</FieldLabel>
-                      <Input
-                        id={formField.name}
-                        value={formField.state.value}
-                        onChange={(event) => {
-                          onEdit();
-                          formField.handleChange(event.target.value);
-                        }}
-                      />
-                    </Field>
-                  )}
-                </form.Field>
-              </CollapsibleContent>
-            </Collapsible>
             {error ? <p className="m-0 text-sm text-destructive">{error}</p> : null}
           </div>
-          <SheetFooter className="flex-row justify-end border-t border-border px-5 py-4">
+          <SheetFooter className="flex-row justify-end border-t border-border-subtle px-6 py-4">
             <Button type="button" variant="ghost" disabled={isSaving} onClick={() => onOpenChange(false)}>
               {m.common_cancel()}
             </Button>
@@ -295,7 +271,6 @@ export function FieldEditorSheet({
 
 type FieldDraft = {
   label: string;
-  key: string;
   type: ModuleFieldType;
   required: boolean;
   defaultKind: FieldDefaultKind;
@@ -306,7 +281,6 @@ type FieldDraft = {
 function toFieldDraft(field?: ModuleTemplateField): FieldDraft {
   return {
     label: field?.label ?? "",
-    key: field?.key ?? "",
     type: field?.type ?? "text",
     required: field?.required ?? false,
     defaultKind: field?.defaultKind ?? "none",

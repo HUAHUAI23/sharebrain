@@ -68,14 +68,10 @@ export function HomeView({ onNavigate }: HomeViewProps) {
       </header>
 
       <section className="home-center">
-        <div className="home-heading">
-          <NotionIcon size="md">S</NotionIcon>
-          <h1>{m.app_name()}</h1>
-        </div>
-
         <div className="home-search">
           <Search size={18} />
           <Input
+            className="h-9.5 border-0 bg-transparent p-0 shadow-none hover:bg-transparent focus-visible:border-transparent focus-visible:bg-transparent focus-visible:ring-0"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             aria-label={m.home_search_aria()}

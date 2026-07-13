@@ -26,18 +26,24 @@ function NotionIcon({ className, size = "sm", ...props }: NotionIconProps) {
 
 function NotionText({
   className,
+  titleClassName,
+  descriptionClassName,
   title,
   description,
   ...props
 }: React.ComponentProps<"span"> & {
+  titleClassName?: string
+  descriptionClassName?: string
   title: React.ReactNode
   description?: React.ReactNode
 }) {
   return (
     <span className={cn("grid min-w-0 gap-px", className)} {...props}>
-      <strong className="truncate text-[13px] leading-tight font-semibold">{title}</strong>
+      <strong className={cn("truncate text-[13px] leading-tight font-semibold", titleClassName)}>
+        {title}
+      </strong>
       {description ? (
-        <small className="truncate text-xs leading-snug font-normal text-muted-foreground">
+        <small className={cn("truncate text-xs leading-snug font-normal text-muted-foreground", descriptionClassName)}>
           {description}
         </small>
       ) : null}
@@ -115,7 +121,7 @@ function NotionToolbar({ className, ...props }: React.ComponentProps<"header">) 
     <header
       data-slot="notion-toolbar"
       className={cn(
-        "sticky top-0 z-10 flex min-h-[42px] items-center gap-2 border-b border-border bg-[color-mix(in_oklab,var(--background)_96%,transparent)] px-2.5 py-1.5",
+        "sticky top-0 z-10 flex min-h-[42px] items-center gap-2 bg-[color-mix(in_oklab,var(--background)_96%,transparent)] px-2.5 py-1.5",
         className
       )}
       {...props}

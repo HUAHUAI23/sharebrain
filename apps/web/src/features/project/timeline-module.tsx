@@ -29,7 +29,7 @@ export function TimelineModule({ projectId, moduleId, module, onNavigate }: Modu
 
   return (
     <div className="module-page">
-      <div className="flex items-end justify-between gap-4 border-b border-border pb-5">
+      <div className="module-header flex items-end justify-between gap-4">
         <PageTitle
           icon={<ListTree size={24} />}
           title={module?.name ?? m.module_timeline_label()}
@@ -37,22 +37,32 @@ export function TimelineModule({ projectId, moduleId, module, onNavigate }: Modu
         />
         <Button size="sm" onClick={() => setComposerOpen(true)}><Plus />{m.timeline_create_placeholder()}</Button>
       </div>
-      <div className="timeline-list mt-8">
+      <div className="timeline-list mt-6">
         {(records.data?.items ?? []).length > 0 ? (
-          (records.data?.items ?? []).map((record) => (
-            <article className="timeline-item" key={record.id}>
-              <div className="timeline-marker" aria-hidden="true" />
-              <time>{new Date(record.occurredAt).toLocaleString()}</time>
-              <h2>{record.title}</h2>
-              <div className="record-values">
-                {module?.fields.map((field) => {
+          (records.data?.items ?? []).map((record) => {
+            const properties = (module?.fields ?? []).flatMap((field) => {
                   const displayValue = formatModuleFieldValue(field, record.values[field.id], members.data?.items);
-                  return displayValue ? <span key={field.id}>{field.label}: {displayValue}</span> : null;
-                })}
-              </div>
-              <RecordDocuments projectId={projectId} moduleId={moduleId} recordId={record.id} onNavigate={onNavigate} />
-            </article>
-          ))
+              return displayValue ? [{ field, displayValue }] : [];
+            });
+            return (
+              <article className="timeline-item" key={record.id}>
+                <div className="timeline-marker" aria-hidden="true" />
+                <time>{new Date(record.occurredAt).toLocaleString()}</time>
+                <h2>{record.title}</h2>
+                {properties.length ? (
+                  <dl className="record-values">
+                    {properties.map(({ field, displayValue }) => (
+                      <div className="record-property" key={field.id}>
+                        <dt>{field.label}</dt>
+                        <dd>{displayValue}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+                <RecordDocuments projectId={projectId} moduleId={moduleId} recordId={record.id} onNavigate={onNavigate} />
+              </article>
+            );
+          })
         ) : (
           <NotionEmpty>{m.module_no_records()}</NotionEmpty>
         )}
