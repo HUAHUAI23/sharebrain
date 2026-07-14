@@ -151,6 +151,8 @@ function NotionSegmentedButton({
 }) {
   return (
     <button
+      type="button"
+      aria-pressed={active}
       data-slot="notion-segmented-button"
       data-active={active || undefined}
       className={cn(

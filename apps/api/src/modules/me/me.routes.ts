@@ -7,7 +7,7 @@ export function createMeRoutes() {
   const app = new OpenAPIHono<AppEnv>();
 
   app.get("/api/me", async (context) => {
-    const service = new MeService(context.var.db);
+    const service = new MeService(context.var.db, context.var.env);
     return context.json({
       ...(await service.getCurrent(context.var.auth)),
       authProvider: context.var.authProvider,
@@ -15,7 +15,7 @@ export function createMeRoutes() {
   });
 
   app.get("/api/members", async (context) => {
-    const service = new MeService(context.var.db);
+    const service = new MeService(context.var.db, context.var.env);
     return context.json({ items: await service.listMembers(context.var.auth) });
   });
 

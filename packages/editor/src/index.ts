@@ -1,5 +1,14 @@
 export { BaseEditorKit } from './editor-base-kit';
 export {
+  cloneEditorVersionValue,
+  computeEditorVersionDiff,
+  estimateEditorVersionValue,
+} from './lib/version-history';
+export { VersionDiffKit, VersionDiffPlugin } from './kits/version-diff-kit';
+export { VersionDiff, type VersionDiffProps } from './ui/version-diff';
+export { VersionDiffLegend, type VersionDiffLegendProps } from './ui/version-diff-legend';
+export { VersionPreview, type VersionPreviewProps } from './ui/version-preview';
+export {
   canCurrentUserDeleteDiscussion,
   dispatchEditorDiscussionAction,
   discussionPlugin,

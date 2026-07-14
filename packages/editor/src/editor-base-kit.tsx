@@ -11,11 +11,13 @@ import { MarkdownKit } from './kits/markdown-kit';
 import { BaseMathKit } from './kits/math-base-kit';
 import { BaseMediaKit } from './kits/media-base-kit';
 import { BaseMentionKit } from './kits/mention-base-kit';
+import { BaseNodeIdKit } from './kits/node-id-base-kit';
 import { BaseTableKit } from './kits/table-base-kit';
 import { BaseTocKit } from './kits/toc-base-kit';
 import { BaseToggleKit } from './kits/toggle-base-kit';
 
 export const BaseEditorKit = [
+  ...BaseNodeIdKit,
   ...BaseBasicBlocksKit,
   ...BaseCodeBlockKit,
   ...BaseTableKit,

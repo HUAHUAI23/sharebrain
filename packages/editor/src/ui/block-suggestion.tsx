@@ -8,7 +8,7 @@ import { CheckIcon, XIcon } from 'lucide-react';
 import { useEditorPlugin, usePluginOption } from 'platejs/react';
 import { m } from '@sharebrain/i18n';
 
-import { Avatar, AvatarFallback, AvatarImage } from '@sharebrain/ui/components/avatar';
+import { UserAvatar } from '@sharebrain/ui/components/user-avatar';
 import { Button } from '@sharebrain/ui/components/button';
 import {
   type TDiscussion,
@@ -81,10 +81,12 @@ export function BlockSuggestionCard({
       <div className="flex flex-col p-4">
         <div className="relative flex items-center">
           {/* Replace to your own backend or refer to potion */}
-          <Avatar className="size-5">
-            <AvatarImage alt={userInfo?.name} src={userInfo?.avatarUrl} />
-            <AvatarFallback>{userInfo?.name?.[0]}</AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            size="sm"
+            name={userInfo.name}
+            fallbackKey={userInfo.id}
+            src={userInfo.avatarUrl}
+          />
           <h4 className="mx-2 font-semibold text-sm leading-none">
             {userInfo?.name}
           </h4>

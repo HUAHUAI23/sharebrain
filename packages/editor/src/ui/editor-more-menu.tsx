@@ -1,7 +1,14 @@
 import * as React from 'react';
 
 import { MarkdownPlugin } from '@platejs/markdown';
-import { ArrowDownToLineIcon, ArrowUpToLineIcon, EyeIcon, MoreHorizontalIcon, PenIcon } from 'lucide-react';
+import {
+  ArrowDownToLineIcon,
+  ArrowUpToLineIcon,
+  EyeIcon,
+  HistoryIcon,
+  MoreHorizontalIcon,
+  PenIcon,
+} from 'lucide-react';
 import { m } from '@sharebrain/i18n';
 import { useEditorReadOnly, useEditorRef } from 'platejs/react';
 import { getEditorDOMFromHtmlString } from 'platejs/static';
@@ -30,7 +37,15 @@ import {
  * Compact page-level menu for editors without a fixed toolbar: import,
  * export and read-only mode. Must be rendered inside a `Plate` provider.
  */
-export function EditorMoreMenu({ fileName = 'document' }: { fileName?: string }) {
+export function EditorMoreMenu({
+  fileName = 'document',
+  onOpenVersionHistory,
+  versionHistoryLabel = 'Version history',
+}: {
+  fileName?: string;
+  onOpenVersionHistory?: () => void;
+  versionHistoryLabel?: string;
+}) {
   const editor = useEditorRef();
   const readOnly = useEditorReadOnly();
   const [open, setOpen] = React.useState(false);
@@ -114,6 +129,17 @@ export function EditorMoreMenu({ fileName = 'document' }: { fileName?: string })
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="min-w-[200px]">
+        {onOpenVersionHistory ? (
+          <>
+            <DropdownMenuGroup>
+              <DropdownMenuItem onSelect={onOpenVersionHistory}>
+                <HistoryIcon />
+                {versionHistoryLabel}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         <DropdownMenuGroup>
           <DropdownMenuItem
             onSelect={() => {

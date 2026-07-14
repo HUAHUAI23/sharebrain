@@ -8,7 +8,11 @@ import {
   updateDocumentRequestSchema,
   type AuthContext,
 } from "@sharebrain/contracts";
-import { syncDocumentInlineMediaUsagesWithClient } from "@sharebrain/db";
+import {
+  materializeAutoVersion,
+  recordStandaloneDocumentActivity,
+  syncDocumentInlineMediaUsagesWithClient,
+} from "@sharebrain/db";
 import {
   documentDiscussionReadStates,
   documentReviewStates,
@@ -27,6 +31,7 @@ import { serializeDocumentDetail, serializeDocumentSummary } from "../shared/ser
 import { appendSortKey } from "../shared/sort-key";
 
 import type { DatabaseClient } from "@sharebrain/db";
+import type { ServerEnv } from "@sharebrain/config";
 
 const emptyPlateJson = [{ type: "p", children: [{ text: "" }] }];
 
@@ -37,7 +42,10 @@ function toIsoTimestamp(value: Date | string) {
 export class DocumentsService {
   private readonly indexer: IndexerService;
 
-  constructor(private readonly db: DatabaseClient) {
+  constructor(
+    private readonly db: DatabaseClient,
+    private readonly env: ServerEnv,
+  ) {
     this.indexer = new IndexerService(db);
   }
 
@@ -79,42 +87,52 @@ export class DocumentsService {
     }
 
     const now = new Date();
-    const [document] = await this.db
-      .insert(documents)
-      .values({
+    const document = await this.db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(documents)
+        .values({
+          tenantId: auth.tenantId,
+          projectId,
+          moduleId: payload.moduleId,
+          moduleRecordId: payload.moduleRecordId ?? null,
+          parentId: payload.parentId ?? null,
+          title: payload.title,
+          status: "active",
+          visibility: "tenant",
+          currentVersion: 1,
+          sortKey: appendSortKey(),
+          createdBy: auth.userId,
+          updatedBy: auth.userId,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+      if (!created) return null;
+      await materializeAutoVersion(tx, {
         tenantId: auth.tenantId,
-        projectId,
-        moduleId: payload.moduleId,
-        moduleRecordId: payload.moduleRecordId ?? null,
-        parentId: payload.parentId ?? null,
-        title: payload.title,
-        status: "active",
-        visibility: "tenant",
-        currentVersion: 1,
-        sortKey: appendSortKey(),
-        createdBy: auth.userId,
-        updatedBy: auth.userId,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
+        documentId: created.id,
+        value: emptyPlateJson,
+        userId: auth.userId,
+        now,
+      });
+      if (this.env.DOCUMENT_ACTIVITY_HISTORY_ENABLED) {
+        await recordStandaloneDocumentActivity(tx, {
+          tenantId: auth.tenantId,
+          documentId: created.id,
+          actorId: auth.userId,
+          type: "document_created",
+          sourceKey: `document-created:${created.id}`,
+          details: { kind: "document_created", title: created.title },
+          occurredAt: now,
+          now,
+        });
+      }
+      return created;
+    });
 
     if (!document) {
       throw new ApiError("DOCUMENT_CREATE_FAILED", "文档创建失败。", 500);
     }
-
-    await this.db.insert(documentVersions).values({
-      tenantId: auth.tenantId,
-      documentId: document.id,
-      versionNo: 1,
-      plateJson: emptyPlateJson,
-      markdown: "",
-      plainText: "",
-      createdBy: auth.userId,
-      updatedBy: auth.userId,
-      createdAt: now,
-      updatedAt: now,
-    });
 
     await this.indexer.indexDocument(auth, document.id, emptyPlateJson, "");
     return serializeDocumentSummary(document);
@@ -234,16 +252,15 @@ export class DocumentsService {
   async update(auth: AuthContext, documentId: string, input: unknown) {
     const payload = parseJson(updateDocumentRequestSchema, input);
     const existing = await this.ensureDocument(auth, documentId);
-    const nextVersion = payload.plateJson === undefined ? existing.currentVersion : existing.currentVersion + 1;
+    const now = new Date();
     const document = await this.db.transaction(async (tx) => {
       const [updatedDocument] = await tx
         .update(documents)
         .set({
           title: payload.title ?? existing.title,
           visibility: payload.visibility ?? existing.visibility,
-          currentVersion: nextVersion,
           updatedBy: auth.userId,
-          updatedAt: new Date(),
+          updatedAt: now,
         })
         .where(eq(documents.id, existing.id))
         .returning();
@@ -253,21 +270,38 @@ export class DocumentsService {
       }
 
       if (payload.plateJson !== undefined) {
-        await tx.insert(documentVersions).values({
+        await materializeAutoVersion(tx, {
           tenantId: auth.tenantId,
           documentId: updatedDocument.id,
-          versionNo: nextVersion,
-          plateJson: payload.plateJson,
-          markdown: payload.markdown ?? "",
-          plainText: payload.plainText ?? "",
-          createdBy: auth.userId,
-          updatedBy: auth.userId,
+          value: payload.plateJson,
+          userId: auth.userId,
         });
         await syncDocumentInlineMediaUsagesWithClient(tx, {
           tenantId: auth.tenantId,
           documentId: updatedDocument.id,
           mediaIds: extractDocumentInlineMediaIds(payload.plateJson),
           userId: auth.userId,
+        });
+      }
+
+      if (
+        this.env.DOCUMENT_ACTIVITY_HISTORY_ENABLED &&
+        payload.title !== undefined &&
+        payload.title !== existing.title
+      ) {
+        await recordStandaloneDocumentActivity(tx, {
+          tenantId: auth.tenantId,
+          documentId: updatedDocument.id,
+          actorId: auth.userId,
+          type: "title_edited",
+          sourceKey: `title:${auth.requestId}`,
+          details: {
+            kind: "title",
+            beforeTitle: existing.title,
+            afterTitle: updatedDocument.title,
+          },
+          occurredAt: now,
+          now,
         });
       }
 

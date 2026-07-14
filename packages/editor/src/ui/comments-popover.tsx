@@ -1,17 +1,17 @@
 import * as React from 'react';
 
 import { CommentPlugin } from '@platejs/comment/react';
-import { CheckCheckIcon, MessageSquareTextIcon, SearchIcon } from 'lucide-react';
+import {
+  CheckCheckIcon,
+  Link2OffIcon,
+  MessageSquareTextIcon,
+  SearchIcon,
+} from 'lucide-react';
 import { m } from '@sharebrain/i18n';
 import type { NodeEntry, TCommentText, Value } from 'platejs';
 import { NodeApi } from 'platejs';
 import { useEditorRef, useEditorVersion, usePluginOption } from 'platejs/react';
 
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from '@sharebrain/ui/components/avatar';
 import { Button } from '@sharebrain/ui/components/button';
 import {
   Popover,
@@ -19,6 +19,7 @@ import {
   PopoverTrigger,
 } from '@sharebrain/ui/components/popover';
 import { cn } from '@sharebrain/ui/lib/utils';
+import { UserAvatar } from '@sharebrain/ui/components/user-avatar';
 
 import { commentPlugin } from '../kits/comment-kit';
 import {
@@ -65,7 +66,9 @@ export function CommentsPopoverButton() {
 
     return discussions
       .filter(
-        (discussion) => !discussion.isResolved && presentIds.has(discussion.id)
+        (discussion) =>
+          !discussion.isResolved &&
+          (presentIds.has(discussion.id) || Boolean(discussion.detachedAt))
       )
       .sort(
         (a, b) =>
@@ -116,6 +119,10 @@ export function CommentsPopoverButton() {
 
   const jumpToDiscussion = React.useCallback(
     (discussion: TDiscussion) => {
+      if (discussion.detachedAt) {
+        markEditorDiscussionRead(editor, discussion);
+        return;
+      }
       const entries = editor
         .getApi(CommentPlugin)
         .comment.nodes({ at: [] }) as NodeEntry<TCommentText>[];
@@ -279,10 +286,12 @@ function DiscussionListItem({
       onClick={onJump}
     >
       <div className="flex items-center gap-2">
-        <Avatar className="size-5">
-          <AvatarImage alt={userInfo?.name} src={userInfo?.avatarUrl} />
-          <AvatarFallback>{userInfo?.name?.[0]}</AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          size="sm"
+          name={userInfo?.name ?? ''}
+          fallbackKey={userInfo?.id ?? discussion.userId}
+          src={userInfo?.avatarUrl}
+        />
         {unread && <span className="size-1.5 rounded-full bg-primary" />}
         <span className={cn('text-sm', unread ? 'font-semibold' : 'font-medium')}>
           {userInfo?.name}
@@ -295,6 +304,13 @@ function DiscussionListItem({
       {discussion.documentContent && (
         <div className="truncate border-highlight border-l-2 pl-2 text-muted-foreground text-xs">
           {discussion.documentContent}
+        </div>
+      )}
+
+      {discussion.detachedAt && (
+        <div className="flex items-center gap-1 text-muted-foreground text-xs">
+          <Link2OffIcon className="size-3.5" />
+          {m.editor_comment_detached()}
         </div>
       )}
 

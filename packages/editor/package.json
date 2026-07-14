@@ -20,7 +20,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "bun --eval \"console.log('no editor tests yet')\""
+    "test": "bun test src"
   },
   "dependencies": {
     "@ai-sdk/react": "catalog:",
@@ -35,6 +35,7 @@
     "@platejs/combobox": "catalog:",
     "@platejs/comment": "catalog:",
     "@platejs/core": "catalog:",
+    "@platejs/diff": "catalog:",
     "@platejs/dnd": "catalog:",
     "@platejs/docx": "catalog:",
     "@platejs/docx-io": "catalog:",
@@ -92,6 +93,7 @@
   },
   "devDependencies": {
     "@sharebrain/typescript-config": "workspace:*",
+    "@types/bun": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "typescript": "catalog:"

@@ -303,6 +303,79 @@ describe("platform API", () => {
     await testApp.db.delete(tenants).where(eq(tenants.id, registeredTenantId));
   });
 
+  test("derives version history capabilities from independent flags and roles", async () => {
+    const readCapabilities = async (
+      app: ReturnType<typeof createTestApp>,
+      role: "viewer" | "editor" | "admin" | "auditor",
+    ) => {
+      const response = await app.app.request("/api/me", {
+        headers: { "x-dev-role": role },
+      });
+      expect(response.status).toBe(200);
+      return asRecord(asRecord(await response.json()).capabilities);
+    };
+
+    const enabledApp = createTestApp({
+      ...testRuntimeEnv,
+      DOCUMENT_VERSION_HISTORY_ENABLED: "true",
+      DOCUMENT_VERSION_RESTORE_ENABLED: "true",
+    });
+    try {
+      expect(await readCapabilities(enabledApp, "viewer")).toEqual({
+        activityHistoryRead: true,
+        versionHistoryRead: true,
+        versionHistoryRestore: false,
+      });
+      expect(await readCapabilities(enabledApp, "auditor")).toEqual({
+        activityHistoryRead: true,
+        versionHistoryRead: true,
+        versionHistoryRestore: false,
+      });
+      expect(await readCapabilities(enabledApp, "editor")).toEqual({
+        activityHistoryRead: true,
+        versionHistoryRead: true,
+        versionHistoryRestore: true,
+      });
+      expect(await readCapabilities(enabledApp, "admin")).toEqual({
+        activityHistoryRead: true,
+        versionHistoryRead: true,
+        versionHistoryRestore: true,
+      });
+    } finally {
+      await enabledApp.close();
+    }
+
+    const readOnlyApp = createTestApp({
+      ...testRuntimeEnv,
+      DOCUMENT_VERSION_HISTORY_ENABLED: "true",
+      DOCUMENT_VERSION_RESTORE_ENABLED: "false",
+    });
+    try {
+      expect(await readCapabilities(readOnlyApp, "admin")).toEqual({
+        activityHistoryRead: true,
+        versionHistoryRead: true,
+        versionHistoryRestore: false,
+      });
+    } finally {
+      await readOnlyApp.close();
+    }
+
+    const disabledApp = createTestApp({
+      ...testRuntimeEnv,
+      DOCUMENT_VERSION_HISTORY_ENABLED: "false",
+      DOCUMENT_VERSION_RESTORE_ENABLED: "true",
+    });
+    try {
+      expect(await readCapabilities(disabledApp, "admin")).toEqual({
+        activityHistoryRead: true,
+        versionHistoryRead: false,
+        versionHistoryRestore: false,
+      });
+    } finally {
+      await disabledApp.close();
+    }
+  });
+
   test("runs the personal workspace project/module/document/search/media path", async () => {
     const me = asRecord((await request("/api/me")).body);
     expect(asRecord(me.user).id).toBe(userId);
@@ -1076,7 +1149,17 @@ describe("platform API", () => {
         })
       ).body,
     );
-    expect(updatedDocument.currentVersion).toBe(2);
+    expect(updatedDocument.currentVersion).toBe(1);
+    const fallbackVersions = await testApp.db
+      .select({ plateJson: documentVersions.plateJson, sealedAt: documentVersions.sealedAt })
+      .from(documentVersions)
+      .where(eq(documentVersions.documentId, String(document.id)));
+    expect(fallbackVersions).toEqual([
+      {
+        plateJson: [{ children: [{ text: "api test searchable text" }], type: "p" }],
+        sealedAt: null,
+      },
+    ]);
 
     const avatarSource = await sharp({
       create: { width: 16, height: 16, channels: 4, background: { r: 64, g: 96, b: 128, alpha: 1 } },

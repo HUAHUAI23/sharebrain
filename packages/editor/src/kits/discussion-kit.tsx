@@ -21,6 +21,8 @@ export type TDiscussion = {
   updatedAt: Date | string;
   userId: string;
   documentContent?: string;
+  detachedAt?: Date | string;
+  detachedReason?: 'version_restore';
 };
 
 export type TDiscussionUser = {

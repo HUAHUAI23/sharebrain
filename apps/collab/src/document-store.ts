@@ -1,3 +1,4 @@
+// 负责把活跃 Y.Doc 原子物化为快照、版本、媒体、评论和搜索读模型。
 import type { DatabaseClient } from "@sharebrain/db";
 import {
   DOCUMENT_DISCUSSION_COMMENTS_BY_ID_KEY,
@@ -6,26 +7,34 @@ import {
   DOCUMENT_DRAFT_COMMENT_MARK_KEY,
   DOCUMENT_REVIEW_MAP_NAME,
   type DocumentDiscussionList,
+  type DocumentActivityType,
+  type DocumentRestoreSourceKind,
+  diffDocumentActivityBlocks,
   documentDiscussionSchema,
   documentDiscussionListSchema,
   extractDocumentInlineMediaIds,
+  toDocumentActivityExcerpt,
 } from "@sharebrain/contracts";
-import { syncDocumentInlineMediaUsagesWithClient } from "@sharebrain/db";
+import {
+  insertRestoreVersion,
+  materializeAutoVersion,
+  recordDocumentContentActivity,
+  recordStandaloneDocumentActivity,
+  sealCurrentVersion,
+  syncDocumentInlineMediaUsagesWithClient,
+} from "@sharebrain/db";
 import {
   documentCrdtSnapshots,
   documentReviewStates,
-  documentVersions,
   documents,
   searchItems,
 } from "@sharebrain/db/schema";
 import { yTextToSlateElement } from "@slate-yjs/core";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import * as Y from "yjs";
 
 import type { CollabContext } from "./auth";
-
-/** 距上一个版本超过该间隔才生成新版本行，否则原地更新最新版本。 */
-const VERSION_ROLLUP_MS = 5 * 60 * 1000;
+import type { DocumentActivityBatch } from "./document-activity-tracker";
 
 type DocumentStoreClient = Pick<DatabaseClient, "delete" | "insert" | "select" | "update">;
 
@@ -67,6 +76,7 @@ export async function storeDocumentSnapshot(
   db: DatabaseClient,
   context: CollabContext,
   ydoc: Y.Doc,
+  options: StoreDocumentOptions = {},
 ) {
   const snapshot = Buffer.from(Y.encodeStateAsUpdate(ydoc));
   const stateVector = Buffer.from(Y.encodeStateVector(ydoc));
@@ -74,7 +84,7 @@ export async function storeDocumentSnapshot(
   const plateJson = yTextToSlateElement(sharedRoot).children;
   const plainText = extractTextFromPlate(plateJson);
 
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     await tx
       .insert(documentCrdtSnapshots)
       .values({
@@ -94,10 +104,30 @@ export async function storeDocumentSnapshot(
         },
       });
 
-    const documentActive = await materializeVersion(tx, context, plateJson, plainText);
-    if (!documentActive) {
+    const versionInput = {
+      tenantId: context.tenantId,
+      documentId: context.documentId,
+      value: plateJson,
+      userId: context.userId,
+    };
+    const version = options.restore
+      ? await insertRestoreVersion(tx, {
+          ...versionInput,
+          operationId: options.restore.operationId,
+          sourceKind: options.restore.sourceKind,
+          sourceRevisionId: options.restore.sourceRevisionId,
+          sourceVersionId: options.restore.sourceVersionId,
+          sourceVersionNo: options.restore.sourceVersionNo,
+          sourceActivityEventId: options.restore.sourceActivityEventId,
+        })
+      : options.seal
+        ? await sealCurrentVersion(tx, versionInput)
+        : await materializeAutoVersion(tx, versionInput);
+    if (!version) {
       return;
     }
+
+    await persistDocumentActivityBatches(tx, options.activityBatches ?? []);
 
     await syncDocumentInlineMediaUsagesWithClient(tx, {
       tenantId: context.tenantId,
@@ -107,7 +137,155 @@ export async function storeDocumentSnapshot(
     });
     await materializeReviewState(tx, context, ydoc, plateJson);
     await upsertSearchItem(tx, context, plainText);
+    return version;
   });
+}
+
+type StoreDocumentOptions = {
+  activityBatches?: DocumentActivityBatch[];
+  seal?: boolean;
+  restore?: {
+    operationId: string;
+    sourceKind: DocumentRestoreSourceKind;
+    sourceRevisionId: string;
+    sourceVersionId: string | null;
+    sourceVersionNo: number | null;
+    sourceActivityEventId: string | null;
+  };
+};
+
+type DiscussionActivity = {
+  type: Extract<
+    DocumentActivityType,
+    | "comment_added"
+    | "comment_replied"
+    | "comment_edited"
+    | "comment_deleted"
+    | "comment_resolved"
+  >;
+  discussionId: string;
+  commentId: string | null;
+  excerpt: string;
+};
+
+function diffDiscussionActivities(
+  before: DocumentDiscussionList,
+  after: DocumentDiscussionList,
+): DiscussionActivity[] {
+  const activities: DiscussionActivity[] = [];
+  const beforeDiscussions = new Map(before.map((discussion) => [discussion.id, discussion]));
+  const afterDiscussionIds = new Set(after.map((discussion) => discussion.id));
+
+  for (const discussion of after) {
+    const previous = beforeDiscussions.get(discussion.id);
+    if (!previous) {
+      discussion.comments.forEach((comment, index) => {
+        activities.push({
+          type: index === 0 ? "comment_added" : "comment_replied",
+          discussionId: discussion.id,
+          commentId: comment.id,
+          excerpt: toDocumentActivityExcerpt(comment.contentRich),
+        });
+      });
+      continue;
+    }
+
+    const previousComments = new Map(previous.comments.map((comment) => [comment.id, comment]));
+    const currentCommentIds = new Set(discussion.comments.map((comment) => comment.id));
+    for (const comment of discussion.comments) {
+      const previousComment = previousComments.get(comment.id);
+      if (!previousComment) {
+        activities.push({
+          type: "comment_replied",
+          discussionId: discussion.id,
+          commentId: comment.id,
+          excerpt: toDocumentActivityExcerpt(comment.contentRich),
+        });
+      } else if (
+        previousComment.updatedAt !== comment.updatedAt ||
+        JSON.stringify(previousComment.contentRich) !== JSON.stringify(comment.contentRich)
+      ) {
+        activities.push({
+          type: "comment_edited",
+          discussionId: discussion.id,
+          commentId: comment.id,
+          excerpt: toDocumentActivityExcerpt(comment.contentRich),
+        });
+      }
+    }
+    for (const comment of previous.comments) {
+      if (currentCommentIds.has(comment.id)) continue;
+      activities.push({
+        type: "comment_deleted",
+        discussionId: discussion.id,
+        commentId: comment.id,
+        excerpt: toDocumentActivityExcerpt(comment.contentRich),
+      });
+    }
+    if (!previous.isResolved && discussion.isResolved) {
+      activities.push({
+        type: "comment_resolved",
+        discussionId: discussion.id,
+        commentId: null,
+        excerpt: discussion.documentContent?.slice(0, 160) ?? "",
+      });
+    }
+  }
+
+  for (const discussion of before) {
+    if (afterDiscussionIds.has(discussion.id)) continue;
+    activities.push({
+      type: "comment_deleted",
+      discussionId: discussion.id,
+      commentId: null,
+      excerpt:
+        discussion.documentContent?.slice(0, 160) ??
+        toDocumentActivityExcerpt(discussion.comments[0]?.contentRich ?? []),
+    });
+  }
+  return activities;
+}
+
+async function persistDocumentActivityBatches(
+  db: Parameters<Parameters<DatabaseClient["transaction"]>[0]>[0],
+  batches: DocumentActivityBatch[],
+) {
+  for (const batch of batches) {
+    await recordDocumentContentActivity(db, {
+      tenantId: batch.context.tenantId,
+      documentId: batch.context.documentId,
+      actorId: batch.context.userId,
+      sourceKey: `yjs:${batch.id}:content`,
+      details: diffDocumentActivityBlocks(batch.beforeValue, batch.afterValue),
+      beforeValue: batch.beforeValue,
+      afterValue: batch.afterValue,
+      startedAt: batch.startedAt,
+      now: batch.occurredAt,
+    });
+
+    if (batch.beforeDiscussions === null || batch.afterDiscussions === null) continue;
+    const discussionActivities = diffDiscussionActivities(
+      batch.beforeDiscussions,
+      batch.afterDiscussions,
+    );
+    for (const [index, activity] of discussionActivities.entries()) {
+      await recordStandaloneDocumentActivity(db, {
+        tenantId: batch.context.tenantId,
+        documentId: batch.context.documentId,
+        actorId: batch.context.userId,
+        type: activity.type,
+        sourceKey: `yjs:${batch.id}:${activity.type}:${index}`,
+        details: {
+          kind: "comment",
+          discussionId: activity.discussionId,
+          commentId: activity.commentId,
+          excerpt: activity.excerpt,
+        },
+        occurredAt: batch.occurredAt,
+        now: batch.occurredAt,
+      });
+    }
+  }
 }
 
 async function materializeReviewState(
@@ -194,8 +372,9 @@ function readReviewV2Discussions(
   const discussions: DocumentDiscussionList = [];
 
   for (const [discussionId, discussionValue] of discussionsById.entries()) {
-    if (presentCommentIds && !presentCommentIds.has(discussionId)) continue;
     if (!(discussionValue instanceof Y.Map)) return null;
+    const detachedAt = getOptionalString(discussionValue, "detachedAt");
+    if (presentCommentIds && !presentCommentIds.has(discussionId) && !detachedAt) continue;
 
     const commentsById = discussionValue.get(DOCUMENT_DISCUSSION_COMMENTS_BY_ID_KEY);
     if (!(commentsById instanceof Y.Map)) return null;
@@ -220,6 +399,10 @@ function readReviewV2Discussions(
       comments: comments.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))),
       createdAt: getString(discussionValue, "createdAt"),
       documentContent: getOptionalString(discussionValue, "documentContent"),
+      ...(detachedAt ? { detachedAt } : {}),
+      ...(getOptionalString(discussionValue, "detachedReason") === "version_restore"
+        ? { detachedReason: "version_restore" as const }
+        : {}),
       isResolved: getBoolean(discussionValue, "isResolved"),
       updatedAt: getString(discussionValue, "updatedAt"),
       userId: getString(discussionValue, "userId"),
@@ -255,78 +438,6 @@ export function readDocumentReviewDiscussions(
   }
 
   return null;
-}
-
-async function materializeVersion(
-  db: DocumentStoreClient,
-  context: CollabContext,
-  plateJson: unknown,
-  plainText: string,
-) {
-  const [document] = await db
-    .select()
-    .from(documents)
-    .where(
-      and(
-        eq(documents.id, context.documentId),
-        eq(documents.tenantId, context.tenantId),
-        isNull(documents.deletedAt),
-      ),
-    )
-    .limit(1);
-
-  if (!document) {
-    return false;
-  }
-
-  const [latestVersion] = await db
-    .select()
-    .from(documentVersions)
-    .where(eq(documentVersions.documentId, document.id))
-    .orderBy(desc(documentVersions.versionNo))
-    .limit(1);
-
-  const shouldRollup =
-    latestVersion && Date.now() - latestVersion.updatedAt.getTime() < VERSION_ROLLUP_MS;
-
-  if (shouldRollup) {
-    await db
-      .update(documentVersions)
-      .set({
-        plateJson: plateJson as never,
-        plainText,
-        updatedBy: context.userId,
-        updatedAt: new Date(),
-      })
-      .where(eq(documentVersions.id, latestVersion.id));
-  } else {
-    const nextVersionNo = (latestVersion?.versionNo ?? 0) + 1;
-
-    await db.insert(documentVersions).values({
-      tenantId: context.tenantId,
-      documentId: document.id,
-      versionNo: nextVersionNo,
-      plateJson: plateJson as never,
-      markdown: "",
-      plainText,
-      createdBy: context.userId,
-      updatedBy: context.userId,
-    });
-
-    await db
-      .update(documents)
-      .set({ currentVersion: nextVersionNo, updatedBy: context.userId, updatedAt: new Date() })
-      .where(eq(documents.id, document.id));
-
-    return true;
-  }
-
-  await db
-    .update(documents)
-    .set({ updatedBy: context.userId, updatedAt: new Date() })
-    .where(eq(documents.id, document.id));
-
-  return true;
 }
 
 /**

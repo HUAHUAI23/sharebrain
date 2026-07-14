@@ -13,7 +13,7 @@
     "build": "tsc -b tsconfig.json && vite build",
     "typecheck": "tsc -b tsconfig.json",
     "preview": "vite preview",
-    "test": "bun --eval \"console.log('no web tests yet')\""
+    "test": "bun test src/features/editor/document-version-history.state.test.ts src/features/editor/editor-participants.test.ts"
   },
   "dependencies": {
     "@platejs/core": "catalog:",
@@ -34,6 +34,7 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-easy-crop": "catalog:",
+    "sonner": "catalog:",
     "yjs": "catalog:",
     "zod": "catalog:",
     "zustand": "catalog:"

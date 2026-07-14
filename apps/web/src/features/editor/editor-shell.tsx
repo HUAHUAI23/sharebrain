@@ -2,6 +2,7 @@ import { MarkdownPlugin } from "@platejs/markdown";
 import { YjsPlugin } from "@platejs/yjs/react";
 import {
   CommentsPopoverButton,
+  cloneEditorVersionValue,
   discussionPlugin,
   Editor,
   EditorContainer,
@@ -15,7 +16,12 @@ import {
   type TDiscussion,
   type TDiscussionReadState,
 } from "@sharebrain/editor";
-import type { DocumentDiscussionsResponse, MarkDocumentDiscussionsReadResponse } from "@sharebrain/contracts";
+import {
+  projectDocumentVersionValue,
+  type DocumentDiscussionsResponse,
+  type MarkDocumentDiscussionsReadResponse,
+  type TenantMember,
+} from "@sharebrain/contracts";
 import { m } from "@sharebrain/i18n";
 import { Button } from "@sharebrain/ui/components/button";
 import { Input } from "@sharebrain/ui/components/input";
@@ -31,9 +37,23 @@ import { runtimeEnv } from "../../lib/runtime-env";
 import { AccountMenu } from "../account/account-menu";
 import { toEditorDiscussions, useEditorDiscussionsBridge } from "./editor-discussions";
 import { createEditorUploadHandler } from "./editor-upload";
+import { createEditorParticipantDirectory } from "./editor-participants";
+import {
+  DocumentHistoryButton,
+  DocumentHistoryPanel,
+  type DocumentHistoryTab,
+} from "./document-activity-history";
+import { DocumentActivityRevision } from "./document-activity-revision";
+import { DocumentVersionHistory } from "./document-version-history";
+import { CURRENT_DOCUMENT_VERSION_KEY } from "./document-version-history.state";
+import {
+  encodeDocumentStateVector,
+  getEditorCollabProvider,
+} from "./editor-collab-provider";
 import type { DocumentResponse, MeResponse, WorkspaceView } from "../workspace/workspace-types";
 
 const emptyPlateValue: Value = [{ type: "p", children: [{ text: "" }] }];
+const emptyMembers: TenantMember[] = [];
 
 const cursorColors = [
   "#2f76d2",
@@ -109,6 +129,11 @@ export function EditorShell({ projectId, moduleId, documentId, recordId, onNavig
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
   });
+  const members = useQuery({
+    queryKey: queryKeys.members,
+    queryFn: () => apiRequest<{ items: TenantMember[] }>("/api/members"),
+    staleTime: 60_000,
+  });
   const initialDiscussions = useMemo(
     () => toEditorDiscussions(discussions.data?.discussions ?? []),
     [discussions.data?.discussions],
@@ -134,10 +159,12 @@ export function EditorShell({ projectId, moduleId, documentId, recordId, onNavig
       documentId={documentId}
       {...(recordId ? { recordId } : {})}
       role={me.data.role}
+      capabilities={me.data.capabilities}
       user={me.data.user}
       initialDocument={document.data}
       initialDiscussions={initialDiscussions}
       initialReadStates={initialReadStates}
+      members={members.data?.items ?? emptyMembers}
       onNavigate={onNavigate}
     />
   );
@@ -149,10 +176,12 @@ type DocumentEditorProps = {
   documentId: string;
   recordId?: string;
   role: MeResponse["role"];
+  capabilities?: MeResponse["capabilities"];
   user: MeResponse["user"];
   initialDocument: DocumentResponse;
   initialDiscussions: TDiscussion[];
   initialReadStates: TDiscussionReadState[];
+  members: TenantMember[];
   onNavigate: (view: WorkspaceView) => void;
 };
 
@@ -162,16 +191,38 @@ function DocumentEditor({
   documentId,
   recordId,
   role,
+  capabilities,
   user,
   initialDocument,
   initialDiscussions,
   initialReadStates,
+  members,
   onNavigate,
 }: DocumentEditorProps) {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(normalizeDocumentTitleInput(initialDocument.title));
+  const [historySnapshot, setHistorySnapshot] = useState<{
+    value: Value;
+    baseStateVector: string;
+    selectedKey: string;
+  } | null>(null);
+  const [historyPanel, setHistoryPanel] = useState<{
+    open: boolean;
+    tab: DocumentHistoryTab;
+  }>({
+    open: false,
+    tab: capabilities?.activityHistoryRead ? "activity" : "versions",
+  });
+  const [activityRevision, setActivityRevision] = useState<{
+    activityId: string;
+    baseStateVector: string;
+  } | null>(null);
   const savedTitleRef = useRef(initialDocument.title);
   const uploadEditorFile = useMemo(() => createEditorUploadHandler({ documentId }), [documentId]);
+  const participantDirectory = useMemo(
+    () => createEditorParticipantDirectory(user, members),
+    [members, user],
+  );
 
   const editor = usePlateEditor({
     plugins: [
@@ -266,9 +317,7 @@ function DocumentEditor({
 
   useEffect(() => {
     editor.setOption(discussionPlugin, "currentUserId", user.id);
-    editor.setOption(discussionPlugin, "users", {
-      [user.id]: { id: user.id, name: user.displayName },
-    });
+    editor.setOption(discussionPlugin, "users", participantDirectory.discussionUsers);
     editor.setOption(discussionPlugin, "readStates", initialReadStates);
     editor.setOption(discussionPlugin, "canDeleteDiscussion", ({ currentUserId, discussion }) =>
       discussion.userId === currentUserId || role === "admin",
@@ -282,7 +331,7 @@ function DocumentEditor({
       editor.setOption(discussionPlugin, "canDeleteDiscussion", null);
       editor.setOption(discussionPlugin, "onDiscussionRead", null);
     };
-  }, [editor, initialReadStates, markDiscussionsReadMutate, role, user.id, user.displayName]);
+  }, [editor, initialReadStates, markDiscussionsReadMutate, participantDirectory, role, user.id]);
 
   useEditorDiscussionsBridge(editor, initialDiscussions);
 
@@ -404,6 +453,32 @@ function DocumentEditor({
     editor.tf.focus();
   };
 
+  const getLiveVersionSnapshot = () => {
+    const snapshot = cloneEditorVersionValue(editor.children as Value);
+    return {
+      value: toPlateValue(projectDocumentVersionValue(snapshot)),
+      baseStateVector: encodeDocumentStateVector(editor.getOptions(YjsPlugin).ydoc),
+    };
+  };
+
+  const openHistoryPanel = (tab: DocumentHistoryTab) => {
+    setHistorySnapshot(null);
+    setActivityRevision(null);
+    setHistoryPanel({ open: true, tab });
+  };
+
+  const openVersionHistory = (selectedKey = CURRENT_DOCUMENT_VERSION_KEY) => {
+    const snapshot = getLiveVersionSnapshot();
+    setActivityRevision(null);
+    setHistorySnapshot({ ...snapshot, selectedKey });
+  };
+
+  const closeHistory = () => {
+    setHistorySnapshot(null);
+    setActivityRevision(null);
+    setHistoryPanel((current) => ({ ...current, open: false }));
+  };
+
   return (
     <main className="editor-page">
       <EditorUploadProvider
@@ -436,8 +511,23 @@ function DocumentEditor({
               </span>
             </div>
             <div className="flex min-w-0 items-center justify-self-end gap-px">
+              {capabilities?.activityHistoryRead || capabilities?.versionHistoryRead ? (
+                <DocumentHistoryButton
+                  onClick={() =>
+                    openHistoryPanel(capabilities?.activityHistoryRead ? "activity" : "versions")
+                  }
+                />
+              ) : null}
               <CommentsPopoverButton />
-              <EditorMoreMenu fileName={title || "document"} />
+              <EditorMoreMenu
+                fileName={title || "document"}
+                {...(capabilities?.versionHistoryRead
+                  ? {
+                      onOpenVersionHistory: () => openHistoryPanel("versions"),
+                      versionHistoryLabel: m.document_version_title(),
+                    }
+                  : {})}
+              />
               <AccountMenu />
             </div>
           </NotionToolbar>
@@ -458,6 +548,58 @@ function DocumentEditor({
               />
             </EditorContainer>
           </article>
+          {historySnapshot ? (
+            <DocumentVersionHistory
+              documentId={documentId}
+              initialCurrentValue={historySnapshot.value}
+              initialBaseStateVector={historySnapshot.baseStateVector}
+              initialSelectedKey={historySnapshot.selectedKey}
+              currentActor={{
+                id: user.id,
+                displayName: user.displayName,
+                avatarUrl: user.avatar.url,
+              }}
+              memberAvatarUrls={participantDirectory.avatarUrls}
+              canRestore={Boolean(capabilities?.versionHistoryRestore)}
+              getCollabProvider={() => getEditorCollabProvider(editor)}
+              getLiveSnapshot={getLiveVersionSnapshot}
+              onClose={() => setHistorySnapshot(null)}
+            />
+          ) : null}
+          <DocumentHistoryPanel
+            documentId={documentId}
+            open={historyPanel.open}
+            suspended={Boolean(historySnapshot || activityRevision)}
+            tab={historyPanel.tab}
+            canReadActivity={Boolean(capabilities?.activityHistoryRead)}
+            canReadVersions={Boolean(capabilities?.versionHistoryRead)}
+            currentActor={{
+              id: user.id,
+              displayName: user.displayName,
+              avatarUrl: user.avatar.url,
+            }}
+            memberAvatarUrls={participantDirectory.avatarUrls}
+            onTabChange={(tab) => setHistoryPanel((current) => ({ ...current, tab }))}
+            onClose={closeHistory}
+            onOpenActivityRevision={(activityId) => {
+              const snapshot = getLiveVersionSnapshot();
+              setHistorySnapshot(null);
+              setActivityRevision({ activityId, baseStateVector: snapshot.baseStateVector });
+            }}
+            onOpenVersion={openVersionHistory}
+          />
+          {activityRevision ? (
+            <DocumentActivityRevision
+              documentId={documentId}
+              activityId={activityRevision.activityId}
+              initialBaseStateVector={activityRevision.baseStateVector}
+              canRestore={Boolean(capabilities?.versionHistoryRestore)}
+              getCollabProvider={() => getEditorCollabProvider(editor)}
+              getLiveBaseStateVector={() => getLiveVersionSnapshot().baseStateVector}
+              onBack={() => setActivityRevision(null)}
+              onClose={closeHistory}
+            />
+          ) : null}
         </Plate>
       </EditorUploadProvider>
     </main>

@@ -34,6 +34,16 @@ export type DocumentInlineMediaUsageSyncInput = {
   now?: Date;
 };
 
+export type InlineMediaUsageSyncInput = {
+  tenantId: string;
+  resourceType: "document" | "document_version" | "document_revision";
+  resourceId: string;
+  mediaIds: string[];
+  metadata?: Record<string, unknown>;
+  userId: string;
+  now?: Date;
+};
+
 export async function upsertMediaUsage(
   db: DatabaseClient,
   input: MediaUsageReference,
@@ -96,6 +106,20 @@ export async function syncDocumentInlineMediaUsagesWithClient(
   db: MediaUsageClient,
   input: DocumentInlineMediaUsageSyncInput,
 ) {
+  return syncInlineMediaUsagesWithClient(db, {
+    tenantId: input.tenantId,
+    resourceType: "document",
+    resourceId: input.documentId,
+    mediaIds: input.mediaIds,
+    userId: input.userId,
+    ...(input.now ? { now: input.now } : {}),
+  });
+}
+
+export async function syncInlineMediaUsagesWithClient(
+  db: MediaUsageClient,
+  input: InlineMediaUsageSyncInput,
+) {
   const now = input.now ?? new Date();
   const mediaIds = [...new Set(input.mediaIds)];
   let activeMediaIds: string[] = [];
@@ -113,9 +137,10 @@ export async function syncDocumentInlineMediaUsagesWithClient(
         await upsertMediaUsageRow(db, {
           tenantId: input.tenantId,
           mediaId,
-          resourceType: "document",
-          resourceId: input.documentId,
+          resourceType: input.resourceType,
+          resourceId: input.resourceId,
           usageKind: "inline",
+          ...(input.metadata ? { metadata: input.metadata } : {}),
           userId: input.userId,
         }, now);
       }
@@ -124,8 +149,8 @@ export async function syncDocumentInlineMediaUsagesWithClient(
 
   const removeConditions = [
     eq(mediaUsages.tenantId, input.tenantId),
-    eq(mediaUsages.resourceType, "document"),
-    eq(mediaUsages.resourceId, input.documentId),
+    eq(mediaUsages.resourceType, input.resourceType),
+    eq(mediaUsages.resourceId, input.resourceId),
     eq(mediaUsages.usageKind, "inline"),
     isNull(mediaUsages.deletedAt),
   ];

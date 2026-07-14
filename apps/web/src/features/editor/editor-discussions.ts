@@ -67,6 +67,8 @@ function toSerializableDiscussion(discussion: TDiscussion): DocumentDiscussion {
     comments: discussion.comments.map(toSerializableComment),
     createdAt: toIsoTimestamp(discussion.createdAt),
     ...(discussion.documentContent ? { documentContent: discussion.documentContent } : {}),
+    ...(discussion.detachedAt ? { detachedAt: toIsoTimestamp(discussion.detachedAt) } : {}),
+    ...(discussion.detachedReason ? { detachedReason: discussion.detachedReason } : {}),
     isResolved: discussion.isResolved,
     updatedAt: toIsoTimestamp(discussion.updatedAt),
     userId: discussion.userId,
@@ -87,6 +89,8 @@ export function toEditorDiscussions(discussions: DocumentDiscussion[]): TDiscuss
     })),
     createdAt: discussion.createdAt,
     ...(discussion.documentContent ? { documentContent: discussion.documentContent } : {}),
+    ...(discussion.detachedAt ? { detachedAt: discussion.detachedAt } : {}),
+    ...(discussion.detachedReason ? { detachedReason: discussion.detachedReason } : {}),
     isResolved: discussion.isResolved,
     updatedAt: discussion.updatedAt,
     userId: discussion.userId,
@@ -124,6 +128,13 @@ function writeDiscussionFields(map: DiscussionYMap, discussion: TDiscussion) {
     map.set("documentContent", serializable.documentContent);
   } else {
     map.delete("documentContent");
+  }
+  if (serializable.detachedAt) {
+    map.set("detachedAt", serializable.detachedAt);
+    map.set("detachedReason", serializable.detachedReason ?? "version_restore");
+  } else {
+    map.delete("detachedAt");
+    map.delete("detachedReason");
   }
 }
 
@@ -163,6 +174,7 @@ function readCommentMap(
 function readDiscussionMap(discussionId: string, discussionMap: DiscussionYMap): DocumentDiscussion | null {
   const commentsById = discussionMap.get(DOCUMENT_DISCUSSION_COMMENTS_BY_ID_KEY);
   const documentContent = getOptionalString(discussionMap, "documentContent");
+  const detachedAt = getOptionalString(discussionMap, "detachedAt");
 
   if (!(commentsById instanceof Y.Map)) return null;
 
@@ -183,6 +195,10 @@ function readDiscussionMap(discussionId: string, discussionMap: DiscussionYMap):
     comments: comments.sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
     createdAt: getString(discussionMap, "createdAt") ?? "",
     ...(documentContent ? { documentContent } : {}),
+    ...(detachedAt ? { detachedAt } : {}),
+    ...(getOptionalString(discussionMap, "detachedReason") === "version_restore"
+      ? { detachedReason: "version_restore" as const }
+      : {}),
     isResolved: getBoolean(discussionMap, "isResolved") ?? false,
     updatedAt: getString(discussionMap, "updatedAt") ?? "",
     userId: getString(discussionMap, "userId") ?? "",

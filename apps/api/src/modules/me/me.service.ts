@@ -1,3 +1,4 @@
+// 返回当前用户身份、空间和服务端裁定的能力开关。
 import { type AuthContext } from "@sharebrain/contracts";
 import { mediaObjects, tenantMemberships, tenants, users } from "@sharebrain/db/schema";
 import { and, asc, eq, isNull } from "drizzle-orm";
@@ -11,9 +12,13 @@ import {
 import { serializeUser } from "../shared/serializers";
 
 import type { DatabaseClient } from "@sharebrain/db";
+import type { ServerEnv } from "@sharebrain/config";
 
 export class MeService {
-  constructor(private readonly db: DatabaseClient) {}
+  constructor(
+    private readonly db: DatabaseClient,
+    private readonly env: ServerEnv,
+  ) {}
 
   async getCurrent(auth: AuthContext) {
     const [user] = await this.db
@@ -41,6 +46,14 @@ export class MeService {
         storageQuotaBytes: tenant.storageQuotaBytes,
       },
       role: auth.role,
+      capabilities: {
+        activityHistoryRead: this.env.DOCUMENT_ACTIVITY_HISTORY_ENABLED,
+        versionHistoryRead: this.env.DOCUMENT_VERSION_HISTORY_ENABLED,
+        versionHistoryRestore:
+          this.env.DOCUMENT_VERSION_HISTORY_ENABLED &&
+          this.env.DOCUMENT_VERSION_RESTORE_ENABLED &&
+          (auth.role === "editor" || auth.role === "admin"),
+      },
     };
   }
 

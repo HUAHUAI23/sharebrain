@@ -36,7 +36,7 @@ import {
   usePluginOption,
 } from 'platejs/react';
 
-import { Avatar, AvatarFallback, AvatarImage } from '@sharebrain/ui/components/avatar';
+import { UserAvatar } from '@sharebrain/ui/components/user-avatar';
 import { Button } from '@sharebrain/ui/components/button';
 import {
   DropdownMenu,
@@ -165,10 +165,12 @@ export function Comment(props: {
       onMouseLeave={() => setHovering(false)}
     >
       <div className="relative flex items-center">
-        <Avatar className="size-5">
-          <AvatarImage alt={userInfo?.name} src={userInfo?.avatarUrl} />
-          <AvatarFallback>{userInfo?.name?.[0]}</AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          size="sm"
+          name={userInfo.name}
+          fallbackKey={userInfo.id}
+          src={userInfo.avatarUrl}
+        />
         <h4 className="mx-2 font-semibold text-sm leading-none">
           {userInfo?.name}
         </h4>
@@ -537,10 +539,12 @@ export function CommentCreateForm({
   return (
     <div className={cn('flex w-full', className)}>
       <div className="mt-2 mr-1 shrink-0">
-        <Avatar className="size-5">
-          <AvatarImage alt={userInfo?.name} src={userInfo?.avatarUrl} />
-          <AvatarFallback>{userInfo?.name?.[0]}</AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          size="sm"
+          name={userInfo.name}
+          fallbackKey={userInfo.id}
+          src={userInfo.avatarUrl}
+        />
       </div>
 
       <div className="relative flex grow gap-2">

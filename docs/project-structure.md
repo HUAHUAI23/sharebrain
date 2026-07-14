@@ -51,6 +51,8 @@ src/
 - `features/modules` 中列表容器、模块身份表单和字段 Sheet 分文件维护，API payload types 使用独立 contract 文件；容量格式化等无状态工具放 `features/storage`，账户组件不得成为存储工具依赖源。
 - `features/project` 按渲染原型拆分组件，`project-view.tsx` 只保留项目布局和模块选择，collection/timeline/record 文档列表放独立文件。
 - timeline 记录创建使用 `RecordComposerSheet`；`NotionCreateRow` 只适合简单对象的新建入口，不承载动态字段复杂表单。
+- 正文版本历史产品壳位于 `features/editor/document-version-history*`：queries 只管 sealed list/detail，restore adapter 只管 API operation + stateless ack/status fallback，state reducer 固化列表、内容和 preview/changes 转换；不得把这些业务 DTO 或权限逻辑移入 `packages/editor`。
+- 文档活动历史产品壳位于 `features/editor/document-activity-history*` 与 `document-activity-revision.tsx`：queries 管理 sequence 分页和 detail 懒加载，侧栏组合日期/actor/open-sealed/展开摘要，revision 工作区组合 preview/diff/restore；活动 DTO、权限和 tenant/document 上下文不得下沉到 `packages/editor`。
 
 ## apps/api
 
@@ -83,6 +85,9 @@ src/
 规则:
 - 只处理协作同步和权限 gate。
 - 文档索引只发 job，不在 WebSocket 链路内做重计算。
+- 版本恢复只接受服务端 operationId，在 `Document.saveMutex` 与 restore gate 内执行；collab 不创建业务 operation，持久化失败必须向 Hocuspocus 抛出并关闭对应 room，不能让未落库正文继续编辑。
+- 未接入共享 Yjs 同步前，restore 开启时部署副本固定为 1；`COLLAB_REPLICA_COUNT` 只是声明值，发布流程仍需核对平台真实副本数。
+- 活动 actor 只能取 `onChange.context` 的认证结果；`onStoreDocument.lastContext` 只负责本轮 snapshot 保存，禁止用于归属防抖窗口内的所有编辑。活动 tracker 使用镜像 Y.Doc，在 actor 边界/store 时投影并通过 begin/commit/rollback drain 与保存事务保持一致。
 
 ## apps/worker
 
@@ -95,6 +100,9 @@ src/
 规则:
 - Worker 处理派生数据和 AI 工作流。
 - 媒体 GC 跨 tenant 扫描过期上传、孤儿媒体和持久化删除任务；对象存储删除必须使用媒体记录自身的 bucket/key，通过 media 行锁、任务状态、租约恢复和指数退避保证并发安全与可重试，并拒绝无法证明物理释放的版本化 bucket。
+- 正文版本空闲封存位于 `jobs/document-version-idle-seal.ts`：默认在最后一次有效正文保存 120 秒后扫描 current open auto，以 document 行锁和锁后二次验证避免与 API/collab 保存竞态；`0` 表示关闭。
+- 正文版本 retention 位于 `jobs/document-version-retention.ts`，默认 dry-run；删除必须二次验证保护集合，并在无 version/activity/operation 引用时释放 revision 及 `document_revision` media usage。pending operation expiry 可由 API 状态查询、collab executor 或 Worker 收敛。
+- 文档活动空闲封存位于 `jobs/document-activity-idle-seal.ts`：默认空闲 120 秒，以 session partial index 扫描、document 行锁和锁后二次验证把临时 before/after 物化为 revision，原子封存 event/session 并清空临时正文。
 - Tool 必须有 Zod input schema、权限上下文、审计和返回大小限制。
 
 ## packages
@@ -106,6 +114,8 @@ src/
 - 翻译源只维护 `messages/zh-CN.json` 和 `messages/en-US.json`；`packages/i18n/src/paraglide/` 和 `apps/web/src/paraglide/` 是 Paraglide 自动生成物，禁止手改。
 - `ui` 只放无业务含义的基础组件和设计 token。
 - `editor` 是 Plate 编辑器基座唯一落点：只放无业务含义的插件 kits、节点 UI、工具栏和静态渲染；文案必须走 `@sharebrain/i18n`，基础组件从 `@sharebrain/ui` 引入，不得依赖业务包。
+- `editor` 的版本能力只接收和返回 Plate `Value`/渲染 props；禁止定义 documentId、tenant、actor、role、cursor、query 或 restore operation 类型。`VersionDiffKit` 只能用于独立只读 editor，不能加入 `EditorKit`/`BaseEditorKit` 污染正常编辑值。
+- `editor` 通过基础 kit 启用稳定 `NodeIdPlugin`，为协作、活动 diff 和宿主扩展提供通用块身份；ID 生成本身不解释活动或版本业务。块级 activity diff、摘要预算和 DTO 放在 `contracts`，会话/持久化放在 `db` 与宿主 app。
 - `editor` 内需要业务数据的能力通过 Provider 注入而非写死：媒体上传走 `EditorUploadProvider`（宿主注入 `EditorUploadHandler`，缺省回退本地 object URL），mention 候选走 `EditorMentionProvider`；Web 侧的实现在 `apps/web/src/features/editor/editor-upload.ts`（由 shell 通过 `createEditorUploadHandler({ documentId })` 注入文档上下文，走 `/api/media` 预签名直传，文档内落 `/api/media/:id/raw` 稳定地址）。editor 只把上传返回的 opaque `key` 保存为媒体节点 `sourceKey`，不解释 ShareBrain mediaId。
 - 评论线程遵循同一边界：`packages/editor` 只提供 discussion action、未读计算、删除线程 UI、正文 mark 清理和插件状态投影；Web 在 `apps/web/src/features/editor/editor-discussions.ts` 将 action 写入 Yjs `review.discussionsById`，并通过 API 持久化 per-user read state。
 - `ui` 是 shadcn 组件唯一落点；`packages/ui/components.json` 使用 `#components/#lib/#hooks` 本地别名，新增 shadcn 组件必须从 `packages/ui` 目录执行 CLI。

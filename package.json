@@ -40,6 +40,7 @@
       "@platejs/combobox": "^53.0.0",
       "@platejs/comment": "^53.0.0",
       "@platejs/core": "^53.2.1",
+      "@platejs/diff": "^53.0.0",
       "@platejs/dnd": "^53.0.0",
       "@platejs/docx": "^53.0.0",
       "@platejs/docx-io": "^53.0.0",

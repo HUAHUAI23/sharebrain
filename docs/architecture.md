@@ -51,6 +51,86 @@ flowchart LR
 - 模块 API 按聚合拆为 `ModuleTemplatesService`、`ProjectModulesService` 和 `ModuleRecordsService`；路由直接依赖对应 service，共享 access/member validation helper，不保留宽泛 facade。
 - Web 页面身份以 TanStack Router URL 为事实源；文档编辑页、项目模块页、`/settings/new-project` 与 `/settings/storage` 必须支持刷新恢复、浏览器前进后退和深链接。Zustand 只承载侧栏、面板、弹层等局部 UI 状态。
 
+## 正文版本历史
+
+版本历史遵循四层边界，不能把完整产品能力下沉到 `packages/editor`：
+
+| 层级 | 职责 |
+|------|------|
+| `packages/editor` | 只提供 Plate `Value` clone、预算估算、diff kit、只读 preview/diff 和图例；不知道 document、tenant、actor、分页、权限或恢复 operation |
+| `apps/web` | 组合 Notion 风格历史工作区、sealed list/detail 查询、当前 live Y.Doc 投影、确认/冲突/force 交互 |
+| `apps/api` | 校验租户、角色、媒体和频率限制，创建服务端 operationId，提供 sealed 只读 API 与 operation status；不覆盖活跃正文 |
+| `apps/collab` | 在 Hocuspocus `Document.saveMutex` 内比较 state vector、保存 before checkpoint、替换 Y.Doc、广播并保存 result checkpoint |
+
+普通编辑保存链路不变：
+
+```mermaid
+sequenceDiagram
+  participant Web
+  participant Collab as Hocuspocus/Yjs
+  participant DB as PostgreSQL
+  Web->>Collab: Yjs update
+  Collab->>DB: snapshot + open/sealed checkpoint + media/review/search（同事务）
+```
+
+恢复链路使用持久化 operation，而不是 API 直接写正文：
+
+```mermaid
+sequenceDiagram
+  participant Web
+  participant API
+  participant Collab
+  participant DB
+  Web->>API: create restore operation(requestId, versionId, stateVector)
+  API->>DB: pending operation + audit
+  API-->>Web: operationId
+  Web->>Collab: stateless execute(operationId)
+  Collab->>DB: claim + before checkpoint
+  Collab->>Collab: replace Y.Doc under saveMutex
+  Collab->>DB: result checkpoint + applied
+  Collab-->>Web: ack；丢失时 Web polling status
+```
+
+正文版本使用 `formatVersion=1` 的确定性 Plate 投影和 canonical SHA-256 hash；根级文本叶子会先规范化为可渲染段落。comment、draft、diff 和 suggestion 临时元数据不会进入可恢复正文。自动 checkpoint 以 `createdAt` 作为固定五分钟活跃窗口，sealed payload 不再更新；最后一次有效正文保存空闲默认 120 秒后，Worker 在 document 行锁内二次验证并封存 current open auto，同时物化内容寻址 revision。列表只返回 sealed summary，当前项由 Web 从 live Y.Doc 合成。
+
+空闲封存不创建新版本、不改正文 payload、versionNo、last editor 或媒体 usage；封存后的下一次真实编辑创建新的 open auto。`DOCUMENT_VERSION_IDLE_SEAL_SECONDS=0` 可关闭，多个 Worker 重复扫描通过相同 document 行锁和锁后二次验证保持幂等。
+
+首期恢复只支持单 collab 副本。`DOCUMENT_VERSION_RESTORE_ENABLED=true` 且声明副本数大于 1、又未启用共享同步时 collab fail-fast；声明配置不能替代部署平台真实副本审计。横向扩容前必须引入共享 Yjs/awareness 同步并补脑裂、断线与 room affinity 验证。
+
+版本保留默认 90 天，`0` 表示无限保留。Worker 默认 dry-run，删除时保护 current、保留期内 checkpoint、active operation 以及近期 operation 的 source/before/result 引用；删除 checkpoint 后仅在 version/activity/operation 均无引用时清理 revision 及其 `document_revision/inline` media usage。实际删除必须经过至少一个 dry-run 观察周期。
+
+## 文档活动历史
+
+活动历史回答“谁在什么时候做了什么”，版本历史回答“正文在某个 checkpoint 是什么、能否恢复”。两者共享 Yjs 变化源和 collab 保存事务，但使用独立的读模型、聚合周期、游标和 UI；活动事件不会替代版本 checkpoint，版本 diff 也不反推 actor 活动。
+
+| 层级 | 职责 |
+|------|------|
+| `packages/editor` | 只通过 `NodeIdPlugin` 为非文本块提供稳定 ID；不包含 activity DTO、actor、tenant、权限、分页或会话策略 |
+| `packages/contracts` | 定义活动 DTO、块级语义 diff、摘要限制和同会话净变化合并 |
+| `apps/collab` | 使用 `onChange.context` 的认证 actor 和镜像 Y.Doc 收集批次；actor 切换或 store 时才投影，不逐击键序列化全文 |
+| `packages/db` | 在 document 行锁内幂等写入事件、聚合 `(document,actor)` open session，并与 snapshot 使用同一事务 |
+| `apps/worker` | 默认在最后一次语义变化空闲 120 秒后锁定 document、二次验证并封存 session |
+| `apps/api` / `apps/web` | 提供 tenant/document 约束的 sequence 游标分页，以及 Notion 风格更新侧栏和打开期间 10 秒轮询 |
+
+```mermaid
+sequenceDiagram
+  participant Web
+  participant Collab
+  participant Tracker as Activity tracker
+  participant DB
+  participant Worker
+  Web->>Collab: Yjs update
+  Collab->>Tracker: onChange(update, authenticated context)
+  Tracker->>Tracker: actor boundary/store 时生成 before/after batch
+  Collab->>DB: snapshot + version + activity batches（同事务）
+  Worker->>DB: idle candidate + document lock + 二次验证
+  Worker->>DB: open -> sealed，occurredAt 保持最后变化时间
+```
+
+正文活动按 `(documentId, actorId)` 聚合。同一 actor 在 120 秒内再次产生语义变化会更新同一 open event，事件 sequence 同步前移；连续会话最长 30 分钟。open session 临时保存首个 before 与最新 after 投影，actor 切换或 idle/max 边界会立即封存上一段并物化 before/after revision，随后清除 session 临时正文。块摘要最多保存 50 项、每段最多 160 字符；完整语义 diff 从 revision 懒加载，不记录 IP 或 User-Agent。
+
+`open` 表示编辑会话尚未封存，可检查临时 before/after 但不可恢复；`sealed` 表示会话已结束，正文活动可通过 after revision 恢复。版本 checkpoint 与活动 revision 复用同一 typed restore operation、state-vector conflict、force 和 ack/status fallback；标题和评论活动只展示摘要，不提供整页恢复。
+
 ## MVP 阶段顺序
 
 1. 个人项目、模块、记录、文档、媒体和搜索读模型。

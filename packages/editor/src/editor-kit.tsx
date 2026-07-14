@@ -26,6 +26,7 @@ import { MarkdownKit } from './kits/markdown-kit';
 import { MathKit } from './kits/math-kit';
 import { MediaKit } from './kits/media-kit';
 import { MentionKit } from './kits/mention-kit';
+import { BaseNodeIdKit } from './kits/node-id-base-kit';
 import { SlashKit } from './kits/slash-kit';
 import { SuggestionKit } from './kits/suggestion-kit';
 import { TableKit } from './kits/table-kit';
@@ -33,6 +34,7 @@ import { TocKit } from './kits/toc-kit';
 import { ToggleKit } from './kits/toggle-kit';
 
 export const EditorKit = [
+  ...BaseNodeIdKit,
   ...AIKit,
   ...BlockMenuKit,
 

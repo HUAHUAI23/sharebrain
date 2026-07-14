@@ -42,7 +42,14 @@ export type MediaStatus = z.infer<typeof mediaStatusSchema>;
 export const mediaPurposeSchema = z.enum(["avatar", "inline", "attachment", "cover"]);
 export type MediaPurpose = z.infer<typeof mediaPurposeSchema>;
 
-export const mediaUsageResourceTypeSchema = z.enum(["user", "document", "document_block", "module_record"]);
+export const mediaUsageResourceTypeSchema = z.enum([
+  "user",
+  "document",
+  "document_revision",
+  "document_version",
+  "document_block",
+  "module_record",
+]);
 export type MediaUsageResourceType = z.infer<typeof mediaUsageResourceTypeSchema>;
 
 export const mediaUsageKindSchema = z.enum(["avatar", "attachment", "cover", "inline"]);
@@ -94,6 +101,13 @@ export const meResponseSchema = z.object({
   tenant: tenantSchema,
   role: projectRoleSchema,
   authProvider: authProviderSchema.nullable().optional(),
+  capabilities: z
+    .object({
+      activityHistoryRead: z.boolean(),
+      versionHistoryRead: z.boolean(),
+      versionHistoryRestore: z.boolean(),
+    })
+    .optional(),
 });
 export type MeResponse = z.infer<typeof meResponseSchema>;
 
@@ -337,6 +351,8 @@ export const documentDiscussionSchema = z.object({
   comments: z.array(documentDiscussionCommentSchema).max(DOCUMENT_DISCUSSION_LIMITS.commentsPerDiscussion),
   createdAt: isoDateTimeSchema,
   documentContent: z.string().max(2000).optional(),
+  detachedAt: isoDateTimeSchema.optional(),
+  detachedReason: z.literal("version_restore").optional(),
   isResolved: z.boolean(),
   updatedAt: isoDateTimeSchema,
   userId: uuidSchema,

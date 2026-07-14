@@ -1,7 +1,10 @@
+import type { DocumentActivityDetails, DocumentVersionValue } from "@sharebrain/contracts";
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  bigserial,
   boolean,
+  check,
   customType,
   index,
   integer,
@@ -419,6 +422,33 @@ export const documentCrdtSnapshots = pgTable("document_crdt_snapshots", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const documentRevisions = pgTable(
+  "document_revisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    formatVersion: integer("format_version").notNull(),
+    contentHash: text("content_hash").notNull(),
+    plateJson: jsonb("plate_json").$type<DocumentVersionValue>().notNull(),
+    plainText: text("plain_text").notNull().default(""),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_document_revisions_content_unique").on(
+      table.documentId,
+      table.formatVersion,
+      table.contentHash,
+    ),
+    index("idx_document_revisions_tenant").on(table.tenantId),
+    index("idx_document_revisions_document").on(table.documentId, table.createdAt),
+  ],
+);
+
 export const documentVersions = pgTable(
   "document_versions",
   {
@@ -430,6 +460,16 @@ export const documentVersions = pgTable(
       .notNull()
       .references(() => documents.id),
     versionNo: integer("version_no").notNull(),
+    kind: text("kind").notNull().default("auto"),
+    sealedAt: timestamp("sealed_at", { withTimezone: true }),
+    sourceVersionId: uuid("source_version_id"),
+    sourceVersionNo: integer("source_version_no"),
+    operationId: uuid("operation_id"),
+    revisionId: uuid("revision_id").references(() => documentRevisions.id, {
+      onDelete: "set null",
+    }),
+    formatVersion: integer("format_version").notNull(),
+    contentHash: text("content_hash").notNull(),
     plateJson: jsonb("plate_json").notNull(),
     markdown: text("markdown").notNull().default(""),
     plainText: text("plain_text").notNull().default(""),
@@ -439,6 +479,172 @@ export const documentVersions = pgTable(
   (table) => [
     uniqueIndex("idx_document_versions_unique").on(table.documentId, table.versionNo),
     index("idx_document_versions_tenant").on(table.tenantId),
+    index("idx_document_versions_document_sealed").on(table.documentId, table.sealedAt, table.versionNo),
+    index("idx_document_versions_open_idle")
+      .on(table.updatedAt, table.id)
+      .where(
+        sql`${table.kind} = 'auto' and ${table.sealedAt} is null and ${table.deletedAt} is null`,
+      ),
+    index("idx_document_versions_source").on(table.sourceVersionId),
+    index("idx_document_versions_revision").on(table.revisionId),
+    uniqueIndex("idx_document_versions_operation_unique")
+      .on(table.operationId)
+      .where(sql`${table.operationId} is not null`),
+    check("chk_document_versions_kind", sql`${table.kind} in ('auto', 'restore')`),
+  ],
+);
+
+export const documentVersionOperations = pgTable(
+  "document_version_operations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id),
+    requestId: uuid("request_id").notNull(),
+    sourceKind: text("source_kind").notNull().default("version"),
+    sourceRevisionId: uuid("source_revision_id").references(() => documentRevisions.id, {
+      onDelete: "set null",
+    }),
+    sourceActivityEventId: uuid("source_activity_event_id"),
+    sourceVersionId: uuid("source_version_id").references(() => documentVersions.id, {
+      onDelete: "set null",
+    }),
+    sourceVersionNo: integer("source_version_no"),
+    beforeVersionId: uuid("before_version_id").references(() => documentVersions.id, {
+      onDelete: "set null",
+    }),
+    beforeVersionNo: integer("before_version_no"),
+    resultVersionId: uuid("result_version_id").references(() => documentVersions.id, {
+      onDelete: "set null",
+    }),
+    resultVersionNo: integer("result_version_no"),
+    status: text("status").notNull().default("pending"),
+    baseStateVectorHash: text("base_state_vector_hash").notNull(),
+    force: boolean("force").notNull().default(false),
+    errorCode: text("error_code"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    applyingAt: timestamp("applying_at", { withTimezone: true }),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_document_version_operations_request_unique").on(
+      table.tenantId,
+      table.documentId,
+      table.createdBy,
+      table.requestId,
+    ),
+    uniqueIndex("idx_document_version_operations_active_unique")
+      .on(table.documentId)
+      .where(sql`${table.status} in ('pending', 'applying') and ${table.deletedAt} is null`),
+    index("idx_document_version_operations_tenant").on(table.tenantId),
+    index("idx_document_version_operations_document").on(table.documentId, table.updatedAt),
+    index("idx_document_version_operations_expires").on(table.status, table.expiresAt),
+    index("idx_document_version_operations_source_revision").on(table.sourceRevisionId),
+    check(
+      "chk_document_version_operations_source_kind",
+      sql`${table.sourceKind} in ('version', 'activity')`,
+    ),
+    check(
+      "chk_document_version_operations_status",
+      sql`${table.status} in ('pending', 'applying', 'applied', 'conflict', 'failed', 'expired')`,
+    ),
+  ],
+);
+
+export const documentActivityEvents = pgTable(
+  "document_activity_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sequence: bigserial("sequence", { mode: "number" }).notNull(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    actorId: uuid("actor_id")
+      .notNull()
+      .references(() => users.id),
+    sessionId: uuid("session_id"),
+    beforeRevisionId: uuid("before_revision_id").references(() => documentRevisions.id, {
+      onDelete: "set null",
+    }),
+    afterRevisionId: uuid("after_revision_id").references(() => documentRevisions.id, {
+      onDelete: "set null",
+    }),
+    type: text("type").notNull(),
+    status: text("status").notNull().default("sealed"),
+    sourceKey: text("source_key").notNull(),
+    details: jsonb("details").$type<DocumentActivityDetails>().notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_document_activity_events_sequence_unique").on(table.sequence),
+    uniqueIndex("idx_document_activity_events_source_unique").on(
+      table.documentId,
+      table.sourceKey,
+    ),
+    index("idx_document_activity_events_document_sequence").on(
+      table.documentId,
+      table.sequence,
+    ),
+    index("idx_document_activity_events_tenant").on(table.tenantId),
+    index("idx_document_activity_events_actor").on(table.actorId, table.occurredAt),
+    index("idx_document_activity_events_session").on(table.sessionId),
+    index("idx_document_activity_events_before_revision").on(table.beforeRevisionId),
+    index("idx_document_activity_events_after_revision").on(table.afterRevisionId),
+    check(
+      "chk_document_activity_events_type",
+      sql`${table.type} in ('document_created', 'content_edited', 'title_edited', 'comment_added', 'comment_replied', 'comment_edited', 'comment_deleted', 'comment_resolved', 'version_restored')`,
+    ),
+    check("chk_document_activity_events_status", sql`${table.status} in ('open', 'sealed')`),
+  ],
+);
+
+export const documentEditSessions = pgTable(
+  "document_edit_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    actorId: uuid("actor_id")
+      .notNull()
+      .references(() => users.id),
+    activityEventId: uuid("activity_event_id")
+      .notNull()
+      .references(() => documentActivityEvents.id, { onDelete: "cascade" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    lastChangedAt: timestamp("last_changed_at", { withTimezone: true }).notNull(),
+    sealedAt: timestamp("sealed_at", { withTimezone: true }),
+    changeCount: integer("change_count").notNull().default(1),
+    processedSourceKeys: jsonb("processed_source_keys")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    beforeValue: jsonb("before_value").$type<DocumentVersionValue>(),
+    afterValue: jsonb("after_value").$type<DocumentVersionValue>(),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_document_edit_sessions_event_unique").on(table.activityEventId),
+    uniqueIndex("idx_document_edit_sessions_open_unique")
+      .on(table.documentId, table.actorId)
+      .where(sql`${table.sealedAt} is null and ${table.deletedAt} is null`),
+    index("idx_document_edit_sessions_open_idle")
+      .on(table.lastChangedAt, table.id)
+      .where(sql`${table.sealedAt} is null and ${table.deletedAt} is null`),
+    index("idx_document_edit_sessions_tenant").on(table.tenantId),
   ],
 );
 

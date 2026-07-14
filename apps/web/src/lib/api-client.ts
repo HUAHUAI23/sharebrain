@@ -63,5 +63,11 @@ export const queryKeys = {
     ["projects", projectId, "documents", moduleId ?? "all", moduleRecordId ?? "none"] as const,
   document: (documentId: string) => ["documents", documentId] as const,
   documentDiscussions: (documentId: string) => ["documents", documentId, "discussions"] as const,
+  documentActivities: (documentId: string) => ["documents", documentId, "activities"] as const,
+  documentActivity: (documentId: string, activityId: string) =>
+    ["documents", documentId, "activities", activityId] as const,
+  documentVersions: (documentId: string) => ["documents", documentId, "versions"] as const,
+  documentVersion: (documentId: string, versionId: string) =>
+    ["documents", documentId, "versions", versionId] as const,
   search: (query: string) => ["search", query] as const,
 };

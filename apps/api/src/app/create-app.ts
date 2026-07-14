@@ -15,6 +15,8 @@ import type { AppEnv } from "./types";
 import { createAiRoutes } from "../modules/ai/ai.routes";
 import { createAuthRoutes } from "../modules/auth/auth.routes";
 import { createDocumentsRoutes } from "../modules/documents/documents.routes";
+import { createDocumentActivitiesRoutes } from "../modules/documents/document-activities.routes";
+import { createDocumentVersionsRoutes } from "../modules/documents/document-versions.routes";
 import { createMeRoutes } from "../modules/me/me.routes";
 import { createMediaRoutes } from "../modules/media/media.routes";
 import { createModulesRoutes } from "../modules/modules/modules.routes";
@@ -66,6 +68,8 @@ export function createApp(options: CreateAppOptions = {}) {
   app.route("/", createProjectsRoutes());
   app.route("/", createModulesRoutes());
   app.route("/", createDocumentsRoutes());
+  app.route("/", createDocumentActivitiesRoutes());
+  app.route("/", createDocumentVersionsRoutes());
   app.route("/", createSearchRoutes());
   app.route("/", createMediaRoutes());
   app.route("/", createAiRoutes());
