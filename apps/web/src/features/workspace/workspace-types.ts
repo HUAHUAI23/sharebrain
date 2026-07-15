@@ -1,5 +1,6 @@
 import type {
   DocumentDetail,
+  DocumentMetadata,
   DocumentSummary,
   MeResponse,
   ModuleRecord,
@@ -26,3 +27,4 @@ export type RecordsResponse = { items: ModuleRecord[] };
 export type DocumentsResponse = { items: DocumentSummary[] };
 export type SearchResponse = { items: Array<{ id: string; title: string; snippet: string; entityType: string; projectId: string | null; documentId: string | null }> };
 export type DocumentResponse = DocumentDetail;
+export type DocumentMetadataResponse = DocumentMetadata;

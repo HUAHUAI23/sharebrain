@@ -10,7 +10,7 @@ import {
 import { m } from '@sharebrain/i18n';
 import type { NodeEntry, TCommentText, Value } from 'platejs';
 import { NodeApi } from 'platejs';
-import { useEditorRef, useEditorVersion, usePluginOption } from 'platejs/react';
+import { useEditorRef, usePluginOption } from 'platejs/react';
 
 import { Button } from '@sharebrain/ui/components/button';
 import {
@@ -33,6 +33,7 @@ import {
   isDiscussionUnread,
   mergeDiscussionReadStates,
 } from '../lib/discussions';
+import { usePresentCommentIds } from '../lib/block-discussion-index';
 import { formatCommentDate } from './comment';
 
 const richToText = (value: Value) =>
@@ -48,21 +49,13 @@ export function CommentsPopoverButton() {
   const discussions = usePluginOption(discussionPlugin, 'discussions');
   const readStates = usePluginOption(discussionPlugin, 'readStates');
   const currentUserId = usePluginOption(discussionPlugin, 'currentUserId');
-  const version = useEditorVersion() ?? 0;
+  const presentCommentIds = usePresentCommentIds();
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState('');
 
   // 只统计仍在文档中且未解决的讨论（评论文本可能已被删除）。
   const activeDiscussions = React.useMemo(() => {
-    const presentIds = new Set<string>();
-
-    for (const [node] of editor
-      .getApi(CommentPlugin)
-      .comment.nodes({ at: [] }) as NodeEntry<TCommentText>[]) {
-      const id = editor.getApi(CommentPlugin).comment.nodeId(node);
-
-      if (id) presentIds.add(id);
-    }
+    const presentIds = new Set(presentCommentIds);
 
     return discussions
       .filter(
@@ -74,7 +67,7 @@ export function CommentsPopoverButton() {
         (a, b) =>
           new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       );
-  }, [discussions, editor, version]);
+  }, [discussions, presentCommentIds]);
 
   const readStatesByDiscussionId = React.useMemo(
     () => new Map(readStates.map((state) => [state.discussionId, state])),

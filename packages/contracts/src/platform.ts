@@ -322,6 +322,11 @@ export const documentDetailSchema = documentSummarySchema.extend({
 });
 export type DocumentDetail = z.infer<typeof documentDetailSchema>;
 
+export const documentMetadataSchema = documentSummarySchema.extend({
+  currentVersion: z.number().int().positive(),
+});
+export type DocumentMetadata = z.infer<typeof documentMetadataSchema>;
+
 export const DOCUMENT_REVIEW_MAP_NAME = "review";
 export const DOCUMENT_REVIEW_VERSION_KEY = "version";
 export const DOCUMENT_REVIEW_VERSION = 2;

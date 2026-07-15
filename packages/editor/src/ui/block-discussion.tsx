@@ -1,5 +1,4 @@
-
-
+// 在顶层正文块挂载评论和建议交互，嵌套节点不创建额外订阅。
 import * as React from 'react';
 
 import type { PlateElementProps, RenderNodeWrapper } from 'platejs/react';
@@ -24,15 +23,54 @@ import {
   PopoverTrigger,
 } from '@sharebrain/ui/components/popover';
 import { commentPlugin } from '../kits/comment-kit';
-import { markEditorDiscussionRead, type TDiscussion } from '../kits/discussion-kit';
-import { useBlockDiscussionItems } from '../lib/block-discussion-index';
+import {
+  discussionPlugin,
+  markEditorDiscussionRead,
+  type TDiscussion,
+} from '../kits/discussion-kit';
+import {
+  useBlockDiscussionItems,
+  useDiscussionIndexPresent,
+} from '../lib/block-discussion-index';
 import { suggestionPlugin } from '../kits/suggestion-kit';
 
 import { BlockSuggestionCard, isResolvedSuggestion } from './block-suggestion';
 import { Comment, CommentCreateForm } from './comment';
 
-export const BlockDiscussion: RenderNodeWrapper<AnyPluginConfig> =
-  (_props) => (props) => <BlockCommentContent {...props} />;
+const BlockDiscussionPresenceContext = React.createContext(false);
+
+export function BlockDiscussionPresence({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const indexPresent = useDiscussionIndexPresent();
+  const discussions = usePluginOption(discussionPlugin, 'discussions');
+  const commentingBlock = usePluginOption(commentPlugin, 'commentingBlock');
+  const activeCommentId = usePluginOption(commentPlugin, 'activeId');
+  const activeSuggestionId = usePluginOption(suggestionPlugin, 'activeId');
+  const enabled = Boolean(
+    indexPresent ||
+      discussions.length > 0 ||
+      commentingBlock ||
+      activeCommentId ||
+      activeSuggestionId
+  );
+
+  return (
+    <BlockDiscussionPresenceContext.Provider value={enabled}>
+      {children}
+    </BlockDiscussionPresenceContext.Provider>
+  );
+}
+
+export const BlockDiscussion: RenderNodeWrapper<AnyPluginConfig> = (props) => {
+  const enabled = React.useContext(BlockDiscussionPresenceContext);
+
+  if (!enabled || props.path.length !== 1) return;
+
+  return (blockProps) => <BlockCommentContent {...blockProps} />;
+};
 
 const getCreatedAtTime = (value: Date | string) => new Date(value).getTime();
 

@@ -1,5 +1,4 @@
-
-
+// 为顶层正文块构建评论和建议索引，避免选区变化触发全文扫描。
 import * as React from 'react';
 
 import type { TResolvedSuggestion } from '@platejs/suggestion';
@@ -14,18 +13,16 @@ import {
   type Path,
   type TCommentText,
   type TElement,
+  type TNode,
   type TSuggestionText,
   ElementApi,
   KEYS,
   PathApi,
   TextApi,
 } from 'platejs';
-import { useEditorRef, useEditorVersion, usePluginOption } from 'platejs/react';
+import { useEditorRef } from 'platejs/react';
 
-import {
-  type TDiscussion,
-  discussionPlugin,
-} from '../kits/discussion-kit';
+import type { TDiscussion } from '../kits/discussion-kit';
 
 import type { TComment } from '../ui/comment';
 
@@ -40,9 +37,15 @@ type BlockDiscussionEntry = NodeEntry<
 >;
 type SuggestionEntry = NodeEntry<TElement | TSuggestionText>;
 
-type BlockDiscussionIndex = {
+export type BlockDiscussionIndex = {
+  commentIds: Set<string>;
   discussionsByBlock: Map<string, TDiscussion[]>;
   suggestionsByBlock: Map<string, ResolvedSuggestion[]>;
+};
+
+export type BlockDiscussionItems = {
+  resolvedDiscussions: TDiscussion[];
+  resolvedSuggestions: ResolvedSuggestion[];
 };
 
 type BuildBlockDiscussionIndexOptions = {
@@ -70,14 +73,14 @@ type BuildBlockDiscussionIndexOptions = {
   isBlockSuggestion: (node: TElement | TSuggestionText) => boolean;
 };
 
-const discussionIndexCache = new WeakMap<
-  PlateEditor,
-  {
-    discussions: TDiscussion[];
-    index: BlockDiscussionIndex;
-    version: number;
-  }
->();
+const EMPTY_DISCUSSIONS: TDiscussion[] = [];
+const EMPTY_COMMENTS: TComment[] = [];
+const EMPTY_SUGGESTIONS: ResolvedSuggestion[] = [];
+const EMPTY_BLOCK_DISCUSSION_ITEMS: BlockDiscussionItems = {
+  resolvedDiscussions: EMPTY_DISCUSSIONS,
+  resolvedSuggestions: EMPTY_SUGGESTIONS,
+};
+const EMPTY_COMMENT_IDS: readonly string[] = [];
 
 const TYPE_TEXT_MAP: Record<string, (node?: TElement) => string> = {
   [KEYS.audio]: () => 'Audio',
@@ -303,7 +306,7 @@ const toResolvedSuggestion = ({
   if (!suggestionData) return null;
 
   const keyId = getSuggestionKey(id);
-  const comments = discussionsById.get(id)?.comments ?? [];
+  const comments = discussionsById.get(id)?.comments ?? EMPTY_COMMENTS;
   const createdAt = new Date(suggestionData.createdAt);
   const suggestionId = keyId2SuggestionId(id);
 
@@ -446,30 +449,20 @@ export const buildBlockDiscussionIndex = ({
   });
 
   return {
+    commentIds,
     discussionsByBlock,
     suggestionsByBlock,
   };
 };
 
-const getDiscussionIndex = (
+const buildEditorDiscussionIndex = (
   editor: PlateEditor,
-  discussions: TDiscussion[],
-  version: number
+  discussions: TDiscussion[]
 ) => {
-  const cached = discussionIndexCache.get(editor);
-
-  if (
-    cached &&
-    cached.version === version &&
-    cached.discussions === discussions
-  ) {
-    return cached.index;
-  }
-
   const commentApi = editor.getApi(CommentPlugin).comment;
   const suggestionApi = editor.getApi(SuggestionPlugin).suggestion;
 
-  const index = buildBlockDiscussionIndex({
+  return buildBlockDiscussionIndex({
     discussions,
     entries: [...editor.api.nodes({ at: [], mode: 'all' })],
     getCommentId: (node) => commentApi.nodeId(node),
@@ -479,24 +472,350 @@ const getDiscussionIndex = (
     isBlockSuggestion: (node) =>
       ElementApi.isElement(node) && suggestionApi.isBlockSuggestion(node),
   });
+};
 
-  discussionIndexCache.set(editor, { discussions, index, version });
+const areDiscussionsEqual = (
+  left: TDiscussion[],
+  right: TDiscussion[]
+) =>
+  left.length === right.length &&
+  left.every((item, index) => {
+    const other = right[index];
 
-  return index;
+    return (
+      other !== undefined &&
+      item.id === other.id &&
+      item.updatedAt === other.updatedAt &&
+      item.isResolved === other.isResolved &&
+      item.comments === other.comments
+    );
+  });
+
+const areSuggestionPropertiesEqual = (left: unknown, right: unknown) => {
+  if (Object.is(left, right)) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') {
+    return false;
+  }
+
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+
+  return (
+    leftKeys.length === Object.keys(rightRecord).length &&
+    leftKeys.every((key) => Object.is(leftRecord[key], rightRecord[key]))
+  );
+};
+
+const areSuggestionsEqual = (
+  left: ResolvedSuggestion[],
+  right: ResolvedSuggestion[]
+) =>
+  left.length === right.length &&
+  left.every((item, index) => {
+    const other = right[index];
+
+    return (
+      other !== undefined &&
+      item.suggestionId === other.suggestionId &&
+      item.keyId === other.keyId &&
+      item.type === other.type &&
+      item.userId === other.userId &&
+      item.createdAt.getTime() === other.createdAt.getTime() &&
+      ('text' in item ? item.text : undefined) ===
+        ('text' in other ? other.text : undefined) &&
+      ('newText' in item ? item.newText : undefined) ===
+        ('newText' in other ? other.newText : undefined) &&
+      areSuggestionPropertiesEqual(
+        item.properties,
+        other.properties
+      ) &&
+      areSuggestionPropertiesEqual(
+        item.newProperties,
+        other.newProperties
+      ) &&
+      item.comments === other.comments
+    );
+  });
+
+const areBlockDiscussionItemsEqual = (
+  left: BlockDiscussionItems,
+  right: BlockDiscussionItems
+) =>
+  areDiscussionsEqual(
+    left.resolvedDiscussions,
+    right.resolvedDiscussions
+  ) &&
+  areSuggestionsEqual(left.resolvedSuggestions, right.resolvedSuggestions);
+
+export class BlockDiscussionIndexStore {
+  private blockItems = new Map<string, BlockDiscussionItems>();
+  private blockListeners = new Map<string, Set<() => void>>();
+  private commentIdListeners = new Set<() => void>();
+  private commentIds: readonly string[] = EMPTY_COMMENT_IDS;
+  private presenceListeners = new Set<() => void>();
+
+  initialized = false;
+  lastDiscussions: TDiscussion[] | null = null;
+
+  get empty() {
+    return this.blockItems.size === 0 && this.commentIds.length === 0;
+  }
+
+  getBlockItems = (blockKey: string) =>
+    this.blockItems.get(blockKey) ?? EMPTY_BLOCK_DISCUSSION_ITEMS;
+
+  getCommentIds = () => this.commentIds;
+
+  getPresent = () => !this.empty;
+
+  subscribeBlock = (blockKey: string, listener: () => void) => {
+    const listeners = this.blockListeners.get(blockKey) ?? new Set();
+
+    listeners.add(listener);
+    this.blockListeners.set(blockKey, listeners);
+
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) this.blockListeners.delete(blockKey);
+    };
+  };
+
+  subscribeCommentIds = (listener: () => void) => {
+    this.commentIdListeners.add(listener);
+
+    return () => {
+      this.commentIdListeners.delete(listener);
+    };
+  };
+
+  subscribePresence = (listener: () => void) => {
+    this.presenceListeners.add(listener);
+
+    return () => {
+      this.presenceListeners.delete(listener);
+    };
+  };
+
+  update(index: BlockDiscussionIndex, discussions: TDiscussion[]) {
+    const wasPresent = this.getPresent();
+    const previousBlockItems = this.blockItems;
+    const nextBlockItems = new Map<string, BlockDiscussionItems>();
+    const nextKeys = new Set([
+      ...index.discussionsByBlock.keys(),
+      ...index.suggestionsByBlock.keys(),
+    ]);
+
+    nextKeys.forEach((blockKey) => {
+      const nextItems: BlockDiscussionItems = {
+        resolvedDiscussions:
+          index.discussionsByBlock.get(blockKey) ?? EMPTY_DISCUSSIONS,
+        resolvedSuggestions:
+          index.suggestionsByBlock.get(blockKey) ?? EMPTY_SUGGESTIONS,
+      };
+      const previousItems = previousBlockItems.get(blockKey);
+
+      nextBlockItems.set(
+        blockKey,
+        previousItems && areBlockDiscussionItemsEqual(previousItems, nextItems)
+          ? previousItems
+          : nextItems
+      );
+    });
+
+    const changedBlockKeys = new Set([
+      ...previousBlockItems.keys(),
+      ...nextBlockItems.keys(),
+    ]);
+
+    this.blockItems = nextBlockItems;
+    this.initialized = true;
+    this.lastDiscussions = discussions;
+
+    changedBlockKeys.forEach((blockKey) => {
+      const previousItems =
+        previousBlockItems.get(blockKey) ?? EMPTY_BLOCK_DISCUSSION_ITEMS;
+      const nextItems = nextBlockItems.get(blockKey) ?? EMPTY_BLOCK_DISCUSSION_ITEMS;
+
+      if (previousItems === nextItems) return;
+      this.blockListeners.get(blockKey)?.forEach((listener) => listener());
+    });
+
+    const nextCommentIds = [...index.commentIds].sort();
+    const commentIdsChanged =
+      this.commentIds.length !== nextCommentIds.length ||
+      this.commentIds.some((id, index) => id !== nextCommentIds[index]);
+
+    if (commentIdsChanged) {
+      this.commentIds = nextCommentIds;
+      this.commentIdListeners.forEach((listener) => listener());
+    }
+
+    if (wasPresent !== this.getPresent()) {
+      this.presenceListeners.forEach((listener) => listener());
+    }
+  }
+}
+
+const discussionIndexStores = new WeakMap<
+  PlateEditor,
+  BlockDiscussionIndexStore
+>();
+
+export const getBlockDiscussionIndexStore = (editor: PlateEditor) => {
+  const existing = discussionIndexStores.get(editor);
+
+  if (existing) return existing;
+
+  const store = new BlockDiscussionIndexStore();
+  discussionIndexStores.set(editor, store);
+
+  return store;
+};
+
+type EditorOperation = PlateEditor['operations'][number];
+
+const operationHasDiscussionData = (
+  editor: PlateEditor,
+  operation: EditorOperation
+) => {
+  const commentApi = editor.getApi(CommentPlugin).comment;
+  const suggestionApi = editor.getApi(SuggestionPlugin).suggestion;
+  const nodeHasDiscussionData = (node: TNode): boolean => {
+    if (TextApi.isText(node)) {
+      return Boolean(
+        commentApi.nodeId(node as TCommentText) ||
+          suggestionApi.nodeId(node as TSuggestionText) ||
+          suggestionApi.dataList(node as TSuggestionText).length > 0
+      );
+    }
+
+    return (
+      suggestionApi.isBlockSuggestion(node) ||
+      node.children.some(nodeHasDiscussionData)
+    );
+  };
+
+  if (operation.type === 'insert_node') {
+    return nodeHasDiscussionData(operation.node);
+  }
+
+  if (
+    operation.type === 'set_selection' ||
+    operation.type === 'split_node' ||
+    operation.type === 'merge_node' ||
+    operation.type === 'move_node' ||
+    operation.type === 'remove_node'
+  ) {
+    return false;
+  }
+
+  if (
+    operation.type !== 'insert_text' &&
+    operation.type !== 'remove_text' &&
+    operation.type !== 'set_node'
+  ) {
+    return true;
+  }
+
+  const node = NodeApi.getIf(editor, operation.path);
+
+  return node ? nodeHasDiscussionData(node) : true;
+};
+
+export const canReuseEmptyDiscussionIndex = ({
+  discussionsChanged,
+  discussionsEmpty,
+  indexEmpty,
+  initialized,
+  operations,
+  operationHasData,
+}: {
+  discussionsChanged: boolean;
+  discussionsEmpty: boolean;
+  indexEmpty: boolean;
+  initialized: boolean;
+  operations: Array<{ type: string }>;
+  operationHasData: (operation: Array<{ type: string }>[number]) => boolean;
+}) =>
+  initialized &&
+  indexEmpty &&
+  discussionsEmpty &&
+  !discussionsChanged &&
+  operations.length > 0 &&
+  operations.every(
+    (operation) =>
+      operation.type === 'set_selection' ||
+      operation.type === 'split_node' ||
+      operation.type === 'merge_node' ||
+      operation.type === 'move_node' ||
+      operation.type === 'remove_node' ||
+      ((operation.type === 'insert_node' ||
+        operation.type === 'insert_text' ||
+        operation.type === 'remove_text' ||
+        operation.type === 'set_node') &&
+        !operationHasData(operation))
+  );
+
+export const refreshBlockDiscussionIndex = (
+  editor: PlateEditor,
+  discussions: TDiscussion[],
+  operations: EditorOperation[] = []
+) => {
+  const store = getBlockDiscussionIndexStore(editor);
+  const discussionsChanged = store.lastDiscussions !== discussions;
+
+  if (
+    canReuseEmptyDiscussionIndex({
+      discussionsChanged,
+      discussionsEmpty: discussions.length === 0,
+      indexEmpty: store.empty,
+      initialized: store.initialized,
+      operations,
+      operationHasData: (operation) =>
+        operationHasDiscussionData(editor, operation as EditorOperation),
+    })
+  ) {
+    return;
+  }
+
+  store.update(buildEditorDiscussionIndex(editor, discussions), discussions);
+};
+
+export const usePresentCommentIds = () => {
+  const editor = useEditorRef();
+  const store = getBlockDiscussionIndexStore(editor);
+
+  return React.useSyncExternalStore(
+    store.subscribeCommentIds,
+    store.getCommentIds,
+    store.getCommentIds
+  );
+};
+
+export const useDiscussionIndexPresent = () => {
+  const editor = useEditorRef();
+  const store = getBlockDiscussionIndexStore(editor);
+
+  return React.useSyncExternalStore(
+    store.subscribePresence,
+    store.getPresent,
+    store.getPresent
+  );
 };
 
 export const useBlockDiscussionItems = (blockPath: Path) => {
   const editor = useEditorRef();
-  const discussions = usePluginOption(discussionPlugin, 'discussions');
-  const version = useEditorVersion() ?? 0;
+  const store = getBlockDiscussionIndexStore(editor);
+  const blockKey = getBlockKey(blockPath);
+  const subscribe = React.useCallback(
+    (listener: () => void) => store.subscribeBlock(blockKey, listener),
+    [blockKey, store]
+  );
+  const getSnapshot = React.useCallback(
+    () => store.getBlockItems(blockKey),
+    [blockKey, store]
+  );
 
-  return React.useMemo(() => {
-    const index = getDiscussionIndex(editor, discussions, version);
-    const blockKey = getBlockKey(blockPath);
-
-    return {
-      resolvedDiscussions: index.discussionsByBlock.get(blockKey) ?? [],
-      resolvedSuggestions: index.suggestionsByBlock.get(blockKey) ?? [],
-    };
-  }, [blockPath, discussions, editor, version]);
+  return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 };

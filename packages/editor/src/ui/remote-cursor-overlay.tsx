@@ -1,20 +1,20 @@
 
-
-// Lifted from slate-yjs https://github.com/BitPhinix/slate-yjs/blob/main/examples/frontend/src/pages/RemoteCursorOverlay/Overlay.tsx
-
+// 渲染 Yjs 远程光标；没有远程参与者时不测量长文档容器布局。
 import * as React from 'react';
 
 import { YjsPlugin } from '@platejs/yjs/react';
 import {
   type CursorOverlayData,
   useRemoteCursorOverlayPositions,
+  useRemoteCursorStates,
 } from '@slate-yjs/react';
 import { useEditorContainerRef, usePluginOption } from 'platejs/react';
 
 export function RemoteCursorOverlay() {
   const isSynced = usePluginOption(YjsPlugin, '_isSynced');
+  const cursors = useRemoteCursorStates<CursorData>();
 
-  if (!isSynced) {
+  if (!isSynced || Object.keys(cursors).length === 0) {
     return null;
   }
 

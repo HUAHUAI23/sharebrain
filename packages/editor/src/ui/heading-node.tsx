@@ -1,6 +1,4 @@
-
-
-
+// 渲染带稳定 HTML 锚点的标题节点，供目录观察和页面内定位复用。
 import type { PlateElementProps } from 'platejs/react';
 
 import { type VariantProps, cva } from 'class-variance-authority';
@@ -26,11 +24,14 @@ export function HeadingElement({
   variant = 'h1',
   ...props
 }: PlateElementProps & VariantProps<typeof headingVariants>) {
+  const id = typeof props.element.id === 'string' ? props.element.id : undefined;
+
   return (
     <PlateElement
-      as={variant!}
-      className={headingVariants({ variant })}
       {...props}
+      as={variant!}
+      attributes={{ ...props.attributes, id }}
+      className={headingVariants({ variant })}
     >
       {props.children}
     </PlateElement>

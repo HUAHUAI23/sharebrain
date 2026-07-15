@@ -49,6 +49,10 @@ export {
 } from './ui/editor-fixed-toolbar-panel';
 export { EditorMoreMenu } from './ui/editor-more-menu';
 export {
+  EditorTocSidebar,
+  type EditorTocSidebarProps,
+} from './ui/editor-toc-sidebar';
+export {
   EmojiPickerButton,
   EmojiToolbarButton,
 } from './ui/emoji-toolbar-button';

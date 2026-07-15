@@ -62,6 +62,7 @@ export const queryKeys = {
   documents: (projectId: string, moduleId?: string, moduleRecordId?: string | null) =>
     ["projects", projectId, "documents", moduleId ?? "all", moduleRecordId ?? "none"] as const,
   document: (documentId: string) => ["documents", documentId] as const,
+  documentMetadata: (documentId: string) => ["documents", documentId, "metadata"] as const,
   documentDiscussions: (documentId: string) => ["documents", documentId, "discussions"] as const,
   documentActivities: (documentId: string) => ["documents", documentId, "activities"] as const,
   documentActivity: (documentId: string, activityId: string) =>

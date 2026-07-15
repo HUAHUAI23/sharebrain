@@ -13,6 +13,7 @@ import {
   documentDiscussionSchema,
   documentDiscussionListSchema,
   extractDocumentInlineMediaIds,
+  projectDocumentVersionValue,
   toDocumentActivityExcerpt,
 } from "@sharebrain/contracts";
 import {
@@ -26,11 +27,13 @@ import {
 import {
   documentCrdtSnapshots,
   documentReviewStates,
+  documentVersions,
   documents,
   searchItems,
 } from "@sharebrain/db/schema";
-import { yTextToSlateElement } from "@slate-yjs/core";
-import { and, eq, isNull } from "drizzle-orm";
+import { slateNodesToInsertDelta, yTextToSlateElement } from "@slate-yjs/core";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import type { Node } from "slate";
 import * as Y from "yjs";
 
 import type { CollabContext } from "./auth";
@@ -69,7 +72,46 @@ export async function loadDocumentSnapshot(db: DatabaseClient, context: CollabCo
     )
     .limit(1);
 
-  return snapshot?.ydocSnapshot ?? null;
+  if (snapshot) return snapshot.ydocSnapshot;
+
+  const [latestVersion] = await db
+    .select({ plateJson: documentVersions.plateJson })
+    .from(documentVersions)
+    .where(
+      and(
+        eq(documentVersions.documentId, context.documentId),
+        eq(documentVersions.tenantId, context.tenantId),
+        isNull(documentVersions.deletedAt),
+      ),
+    )
+    .orderBy(desc(documentVersions.versionNo))
+    .limit(1);
+
+  return latestVersion ? createDocumentBootstrapUpdate(latestVersion.plateJson) : null;
+}
+
+export function createDocumentBootstrapUpdate(value: unknown) {
+  const nodes = prepareDocumentYjsNodes(value);
+  const ydoc = new Y.Doc();
+  const sharedRoot = ydoc.get("content", Y.XmlText);
+
+  ydoc.transact(() => {
+    sharedRoot.applyDelta(
+      slateNodesToInsertDelta(nodes),
+      { sanitize: false },
+    );
+  });
+
+  return Buffer.from(Y.encodeStateAsUpdate(ydoc));
+}
+
+export function prepareDocumentYjsNodes(value: unknown): Node[] {
+  const projected = projectDocumentVersionValue(value);
+
+  // Projection uses null-prototype records to reject prototype pollution. Yjs
+  // XmlText attributes only accept ordinary JSON records, so materialize the
+  // already validated canonical value before converting it to a Slate delta.
+  return JSON.parse(JSON.stringify(projected)) as Node[];
 }
 
 export async function storeDocumentSnapshot(

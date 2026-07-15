@@ -1,5 +1,6 @@
 import type {
   DocumentDetail,
+  DocumentMetadata,
   DocumentSummary,
   MediaObject,
   ModuleField,
@@ -160,6 +161,15 @@ export function serializeDocumentDetail(
     plateJson: version?.plateJson ?? [{ type: "p", children: [{ text: "" }] }],
     markdown: version?.markdown ?? "",
     plainText: version?.plainText ?? "",
+  };
+}
+
+export function serializeDocumentMetadata(
+  row: Select<typeof documents>,
+): DocumentMetadata {
+  return {
+    ...serializeDocumentSummary(row),
+    currentVersion: row.currentVersion,
   };
 }
 

@@ -155,7 +155,7 @@
 
 .markdown-editor {
   --editor-content-gutter: 56px;
-  --editor-content-width: 744px;
+  --editor-content-width: 820px;
   width: min(
     calc(var(--editor-content-width) + var(--editor-content-gutter) * 2),
     calc(100vw - 64px)

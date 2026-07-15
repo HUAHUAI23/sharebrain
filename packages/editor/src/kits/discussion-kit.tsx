@@ -1,9 +1,13 @@
+// 维护编辑器评论状态，并只在顶层正文块挂载评论交互外壳。
 import type { TComment } from '../ui/comment';
 
 import { createPlatePlugin } from 'platejs/react';
 import type { PlateEditor } from 'platejs/react';
 
-import { BlockDiscussion } from '../ui/block-discussion';
+import {
+  BlockDiscussion,
+  BlockDiscussionPresence,
+} from '../ui/block-discussion';
 import {
   type DiscussionAction,
   type DiscussionReadItem,
@@ -12,6 +16,7 @@ import {
   getDiscussionReadItem,
   nowIso,
 } from '../lib/discussions';
+import { refreshBlockDiscussionIndex } from '../lib/block-discussion-index';
 
 export type TDiscussion = {
   id: string;
@@ -88,6 +93,15 @@ const fallbackUser: TDiscussionUser = {
  * own persistence layer); the editor package stays business-agnostic.
  */
 export const discussionPlugin = createPlatePlugin({
+  handlers: {
+    onChange: ({ editor }) => {
+      refreshBlockDiscussionIndex(
+        editor,
+        editor.getOption(discussionPlugin, 'discussions'),
+        [...editor.operations]
+      );
+    },
+  },
   key: 'discussion',
   options: {
     currentUserId: fallbackUser.id,
@@ -100,7 +114,10 @@ export const discussionPlugin = createPlatePlugin({
   },
 })
   .configure({
-    render: { aboveNodes: BlockDiscussion },
+    render: {
+      aboveEditable: BlockDiscussionPresence,
+      aboveNodes: BlockDiscussion,
+    },
   })
   .extendSelectors(({ getOption }) => ({
     currentUser: () =>
@@ -113,6 +130,7 @@ export function setEditorDiscussions(
   discussions: TDiscussion[]
 ) {
   editor.setOption(discussionPlugin, 'discussions', discussions);
+  refreshBlockDiscussionIndex(editor, discussions);
 }
 
 export function setEditorDiscussionReadStates(

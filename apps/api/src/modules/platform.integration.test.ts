@@ -1160,6 +1160,25 @@ describe("platform API", () => {
         sealedAt: null,
       },
     ]);
+    const documentMetadata = asRecord(
+      (
+        await request(
+          `/api/documents/${String(document.id)}?includeContent=false`,
+        )
+      ).body,
+    );
+    expect(documentMetadata.id).toBe(document.id);
+    expect(documentMetadata.currentVersion).toBe(1);
+    expect(documentMetadata).not.toHaveProperty("plateJson");
+    expect(documentMetadata).not.toHaveProperty("markdown");
+    expect(documentMetadata).not.toHaveProperty("plainText");
+
+    const documentDetail = asRecord(
+      (await request(`/api/documents/${String(document.id)}`)).body,
+    );
+    expect(documentDetail.plateJson).toEqual([
+      { children: [{ text: "api test searchable text" }], type: "p" },
+    ]);
 
     const avatarSource = await sharp({
       create: { width: 16, height: 16, channels: 4, background: { r: 64, g: 96, b: 128, alpha: 1 } },

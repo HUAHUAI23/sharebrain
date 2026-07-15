@@ -37,7 +37,13 @@ export function createDocumentsRoutes() {
 
   app.get("/api/documents/:documentId", async (context) => {
     const service = new DocumentsService(context.var.db, context.var.env);
-    return context.json(await service.get(context.var.auth, context.req.param("documentId")));
+    const documentId = context.req.param("documentId");
+
+    if (context.req.query("includeContent") === "false") {
+      return context.json(await service.getMetadata(context.var.auth, documentId));
+    }
+
+    return context.json(await service.get(context.var.auth, documentId));
   });
 
   app.patch("/api/documents/:documentId", async (context) => {

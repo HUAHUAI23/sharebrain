@@ -1,4 +1,4 @@
-import { MarkdownPlugin } from "@platejs/markdown";
+// 组合文档元数据、Plate/Yjs 协作和历史面板，并配置长文档渲染预算。
 import { YjsPlugin } from "@platejs/yjs/react";
 import {
   CommentsPopoverButton,
@@ -8,6 +8,7 @@ import {
   EditorContainer,
   EditorKit,
   EditorMoreMenu,
+  EditorTocSidebar,
   EditorUploadProvider,
   RemoteCursorOverlay,
   mergeDiscussionReadStates,
@@ -29,8 +30,15 @@ import { NotionEmpty, NotionToolbar } from "@sharebrain/ui/components/notion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { KEYS, type TElement, type Value } from "platejs";
-import { Plate, usePlateEditor } from "platejs/react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Plate, usePlateEditor, type PlateChunkProps } from "platejs/react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+} from "react";
 
 import { apiRequest, queryKeys } from "../../lib/api-client";
 import { runtimeEnv } from "../../lib/runtime-env";
@@ -50,10 +58,26 @@ import {
   encodeDocumentStateVector,
   getEditorCollabProvider,
 } from "./editor-collab-provider";
-import type { DocumentResponse, MeResponse, WorkspaceView } from "../workspace/workspace-types";
+import type {
+  DocumentMetadataResponse,
+  MeResponse,
+  WorkspaceView,
+} from "../workspace/workspace-types";
 
 const emptyPlateValue: Value = [{ type: "p", children: [{ text: "" }] }];
 const emptyMembers: TenantMember[] = [];
+const documentEditorChunkSize = 50;
+const documentEditorChunkStyle: CSSProperties = { contain: "layout style" };
+
+function DocumentEditorChunk({ attributes, children, lowest }: PlateChunkProps) {
+  if (!lowest) return children;
+
+  return (
+    <div {...attributes} style={documentEditorChunkStyle}>
+      {children}
+    </div>
+  );
+}
 
 const cursorColors = [
   "#2f76d2",
@@ -117,8 +141,11 @@ export function EditorShell({ projectId, moduleId, documentId, recordId, onNavig
     queryFn: () => apiRequest<MeResponse>("/api/me"),
   });
   const document = useQuery({
-    queryKey: queryKeys.document(documentId),
-    queryFn: () => apiRequest<DocumentResponse>(`/api/documents/${documentId}`),
+    queryKey: queryKeys.documentMetadata(documentId),
+    queryFn: () =>
+      apiRequest<DocumentMetadataResponse>(
+        `/api/documents/${documentId}?includeContent=false`,
+      ),
     // 内容事实源由协作服务落库，编辑期间不要用旧版本覆盖编辑器。
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
@@ -178,7 +205,7 @@ type DocumentEditorProps = {
   role: MeResponse["role"];
   capabilities?: MeResponse["capabilities"];
   user: MeResponse["user"];
-  initialDocument: DocumentResponse;
+  initialDocument: DocumentMetadataResponse;
   initialDiscussions: TDiscussion[];
   initialReadStates: TDiscussionReadState[];
   members: TenantMember[];
@@ -225,6 +252,13 @@ function DocumentEditor({
   );
 
   const editor = usePlateEditor({
+    chunking: {
+      chunkSize: documentEditorChunkSize,
+      contentVisibilityAuto: false,
+    },
+    // Plate 的默认导航反馈会给每个 Slate element 注入 trackedEditor
+    // selector。长文档普通输入会因此重算整棵元素树；本页面的 TOC 已自行滚动定位。
+    navigationFeedback: false,
     plugins: [
       ...EditorKit,
       YjsPlugin.configure({
@@ -336,14 +370,6 @@ function DocumentEditor({
   useEditorDiscussionsBridge(editor, initialDiscussions);
 
   useEffect(() => {
-    let initialValue = toPlateValue(initialDocument.plateJson);
-
-    if (initialValue === emptyPlateValue && initialDocument.markdown) {
-      initialValue = toPlateValue(
-        editor.getApi(MarkdownPlugin).markdown.deserialize(initialDocument.markdown),
-      );
-    }
-
     const yjs = editor.getApi(YjsPlugin).yjs;
     // StrictMode 会立即执行一次 mount/cleanup 再正式挂载；yjs.init 是异步长流程
     // （等 provider sync），并发的两次 init 会互相打断。用宏任务延迟一拍，
@@ -359,7 +385,9 @@ function DocumentEditor({
           yjs.init({
             id: `document:${documentId}`,
             autoSelect: "end",
-            value: initialValue,
+            // Collab 在无 CRDT snapshot 时从最新正文版本引导。客户端绝不能在
+            // provider 同步超时后回填 HTTP 正文，否则远端快照会与整篇正文合并。
+            value: null,
           }),
         )
         .catch((error: unknown) => {
@@ -544,10 +572,12 @@ function DocumentEditor({
                 variant="none"
                 className="min-h-[56vh] w-full px-[var(--editor-content-gutter)] pt-0 pb-36 text-base leading-7 text-foreground"
                 placeholder={m.document_editor_placeholder()}
+                renderChunk={DocumentEditorChunk}
                 onKeyDown={handleEditorKeyDown}
               />
             </EditorContainer>
           </article>
+          <EditorTocSidebar />
           {historySnapshot ? (
             <DocumentVersionHistory
               documentId={documentId}

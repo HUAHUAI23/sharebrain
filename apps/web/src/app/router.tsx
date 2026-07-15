@@ -15,7 +15,10 @@ import { ModuleTemplatesView } from "../features/modules/module-templates-view";
 import { ProjectView } from "../features/project/project-view";
 import { StorageView } from "../features/storage/storage-view";
 import { WorkspaceRoot } from "../features/workspace/workspace-root";
-import type { DocumentResponse, WorkspaceView } from "../features/workspace/workspace-types";
+import type {
+  DocumentMetadataResponse,
+  WorkspaceView,
+} from "../features/workspace/workspace-types";
 
 const EditorShell = lazy(() =>
   import("../features/editor/editor-shell").then((module) => ({
@@ -243,8 +246,11 @@ function DocumentLookupRouteComponent() {
   const navigate = useNavigate();
   const { documentId } = documentLookupRoute.useParams();
   const document = useQuery({
-    queryKey: queryKeys.document(documentId),
-    queryFn: () => apiRequest<DocumentResponse>(`/api/documents/${documentId}`),
+    queryKey: queryKeys.documentMetadata(documentId),
+    queryFn: () =>
+      apiRequest<DocumentMetadataResponse>(
+        `/api/documents/${documentId}?includeContent=false`,
+      ),
     retry: false,
   });
 

@@ -5,10 +5,16 @@ import {
   DOCUMENT_COMMENT_MARK_PREFIX,
   DOCUMENT_REVIEW_MAP_NAME,
   type DocumentDiscussionList,
+  canonicalizeDocumentVersionValue,
 } from "@sharebrain/contracts";
+import { yTextToSlateElement } from "@slate-yjs/core";
 import * as Y from "yjs";
 
-import { extractDocumentCommentIds, readDocumentReviewDiscussions } from "./document-store";
+import {
+  createDocumentBootstrapUpdate,
+  extractDocumentCommentIds,
+  readDocumentReviewDiscussions,
+} from "./document-store";
 
 const userId = "00000000-0000-4000-9000-000000000001";
 
@@ -141,5 +147,43 @@ describe("document review state", () => {
         presentCommentIds: extractDocumentCommentIds(plateJson),
       }),
     ).toEqual(discussions.slice(0, 1));
+  });
+});
+
+describe("document bootstrap snapshot", () => {
+  test("converts the latest projected version into the Yjs content root", () => {
+    const value = [
+      {
+        id: "paragraph-1",
+        type: "p",
+        children: [
+          { text: "hello", bold: true },
+          { text: " world", comment_draft: true },
+        ],
+      },
+      {
+        type: "table",
+        children: [
+          {
+            type: "tr",
+            children: [
+              {
+                type: "td",
+                attributes: { colspan: "1", rowspan: "1" },
+                children: [{ type: "p", children: [{ text: "cell" }] }],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    const ydoc = new Y.Doc();
+
+    Y.applyUpdate(ydoc, createDocumentBootstrapUpdate(value));
+
+    const content = yTextToSlateElement(ydoc.get("content", Y.XmlText)).children;
+    expect(canonicalizeDocumentVersionValue(content)).toBe(
+      canonicalizeDocumentVersionValue(value),
+    );
   });
 });

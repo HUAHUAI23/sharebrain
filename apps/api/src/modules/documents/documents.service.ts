@@ -27,7 +27,11 @@ import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { ApiError } from "../../app/api-error";
 import { parseJson } from "../../app/validation";
 import { IndexerService } from "../indexer/indexer.service";
-import { serializeDocumentDetail, serializeDocumentSummary } from "../shared/serializers";
+import {
+  serializeDocumentDetail,
+  serializeDocumentMetadata,
+  serializeDocumentSummary,
+} from "../shared/serializers";
 import { appendSortKey } from "../shared/sort-key";
 
 import type { DatabaseClient } from "@sharebrain/db";
@@ -148,6 +152,12 @@ export class DocumentsService {
       .limit(1);
 
     return serializeDocumentDetail(document, version);
+  }
+
+  async getMetadata(auth: AuthContext, documentId: string) {
+    return serializeDocumentMetadata(
+      await this.ensureDocument(auth, documentId),
+    );
   }
 
   async getDiscussions(auth: AuthContext, documentId: string) {

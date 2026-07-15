@@ -1,18 +1,19 @@
-
-
+// 提供块级拖拽、插入和上下文菜单，并保持滚动热路径不读取布局。
 import * as React from 'react';
 
-import { DndPlugin, useDraggable, useDropLine } from '@platejs/dnd';
+import { DndPlugin, useDndNode, useDropLine } from '@platejs/dnd';
 import { expandListItemsWithChildren } from '@platejs/list';
 import { BlockMenuPlugin, BlockSelectionPlugin } from '@platejs/selection/react';
 import { GripVertical, Plus } from 'lucide-react';
 import { m } from '@sharebrain/i18n';
-import { type TElement, getPluginByType, isType, KEYS, PathApi } from 'platejs';
+import { type TElement, isType, KEYS, PathApi } from 'platejs';
+import { createPortal } from 'react-dom';
 import {
   type PlateEditor,
   type PlateElementProps,
   type RenderNodeWrapper,
   MemoizedChildren,
+  useEditorContainerRef,
   useEditorRef,
   useElement,
   usePluginOption,
@@ -30,6 +31,126 @@ import { cn } from '@sharebrain/ui/lib/utils';
 import { CARET_CONTEXT_MENU_ID } from './block-context-menu';
 
 const UNDRAGGABLE_KEYS = [KEYS.column, KEYS.tr, KEYS.td];
+
+const BLOCK_TOOLBAR_MARGIN_TOP: Record<string, string> = {
+  [KEYS.blockquote]: '0.25rem',
+  [KEYS.callout]: '0.25rem',
+  [KEYS.equation]: '0.25rem',
+  [KEYS.file]: '1px',
+  [KEYS.h1]: '3.6rem',
+  [KEYS.h2]: '2.1rem',
+  [KEYS.h3]: '1.25rem',
+  [KEYS.h4]: '0.84375rem',
+  [KEYS.h5]: '0.84375rem',
+  [KEYS.h6]: '0.75rem',
+};
+
+export const getBlockToolbarTop = (type: string): string => {
+  const marginTop = BLOCK_TOOLBAR_MARGIN_TOP[type];
+
+  return marginTop ? `calc(${marginTop} + 3px)` : '3px';
+};
+
+export function BlockGutterVisibility({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const containerRef = useEditorContainerRef();
+  const scrollShieldRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const container = containerRef.current;
+    const scrollShield = scrollShieldRef.current;
+
+    if (!container || !scrollShield) return;
+
+    let activeGutter: HTMLElement | null = null;
+    let scrollEndTimer: ReturnType<typeof setTimeout> | null = null;
+    let shieldActive = false;
+
+    const clearActiveGutter = () => {
+      activeGutter?.style.removeProperty('opacity');
+      activeGutter = null;
+    };
+    const handlePointerMove = (event: PointerEvent) => {
+      const target = event.target;
+      const block =
+        target instanceof Element
+          ? target.closest<HTMLElement>('.slate-blockShell')
+          : null;
+      const nextGutter = block?.querySelector<HTMLElement>(
+        ':scope > .slate-gutterLeft'
+      );
+
+      if (nextGutter === activeGutter) return;
+
+      clearActiveGutter();
+
+      if (nextGutter) {
+        nextGutter.style.opacity = '1';
+        activeGutter = nextGutter;
+      }
+    };
+    const handleWheel = (event: WheelEvent) => {
+      const target = event.target;
+      const belongsToEditor =
+        target === scrollShield ||
+        (target instanceof Node && container.contains(target));
+
+      if (!belongsToEditor) return;
+
+      clearActiveGutter();
+
+      if (!shieldActive) {
+        scrollShield.style.pointerEvents = 'auto';
+        shieldActive = true;
+      }
+      if (scrollEndTimer) clearTimeout(scrollEndTimer);
+
+      scrollEndTimer = setTimeout(() => {
+        scrollShield.style.removeProperty('pointer-events');
+        shieldActive = false;
+        scrollEndTimer = null;
+      }, 120);
+    };
+
+    container.addEventListener('pointermove', handlePointerMove, {
+      passive: true,
+    });
+    container.addEventListener('mouseleave', clearActiveGutter);
+    window.addEventListener('wheel', handleWheel, {
+      capture: true,
+      passive: true,
+    });
+
+    return () => {
+      if (scrollEndTimer) clearTimeout(scrollEndTimer);
+      clearActiveGutter();
+      container.removeEventListener('pointermove', handlePointerMove);
+      container.removeEventListener('mouseleave', clearActiveGutter);
+      window.removeEventListener('wheel', handleWheel, { capture: true });
+    };
+  }, [containerRef]);
+
+  return (
+    <>
+      {children}
+      {typeof document === 'undefined'
+        ? null
+        : createPortal(
+            <div
+              ref={scrollShieldRef}
+              aria-hidden="true"
+              className="pointer-events-none fixed inset-0 z-[100]"
+              contentEditable={false}
+              style={{ contain: 'strict', transform: 'translateZ(0)' }}
+            />,
+            document.body
+          )}
+    </>
+  );
+}
 
 export const BlockDraggable: RenderNodeWrapper = (props) => {
   const { editor, element, path } = props;
@@ -70,30 +191,85 @@ export const BlockDraggable: RenderNodeWrapper = (props) => {
 
   if (!enabled) return;
 
-  return (props) => <Draggable {...props} />;
+  return (props) => <DeferredDraggable {...props} />;
 };
 
-function Draggable(props: PlateElementProps) {
+function DeferredDraggable(props: PlateElementProps) {
   const { children, editor, element, path } = props;
+  const [interactionReady, setInteractionReady] = React.useState(false);
+  const [controlsActive, setControlsActive] = React.useState(false);
+  const nodeRef = React.useRef<HTMLDivElement>(null);
+  const previewRef = React.useRef<HTMLDivElement>(null);
+
+  const activate = () => {
+    setInteractionReady(true);
+    setControlsActive(true);
+  };
+
+  return (
+    <div
+      className="slate-blockShell relative"
+      onPointerDownCapture={activate}
+      onPointerEnter={activate}
+      onPointerLeave={() => setControlsActive(false)}
+      onDragEnterCapture={() => setInteractionReady(true)}
+    >
+      {interactionReady ? (
+        <DraggableBehavior
+          editor={editor}
+          element={element}
+          path={path}
+          nodeRef={nodeRef}
+          previewRef={previewRef}
+          controlsActive={controlsActive}
+        />
+      ) : null}
+      <BlockContent
+        key="content"
+        ref={nodeRef}
+        editor={editor}
+        element={element}
+        showDropLine={interactionReady}
+      >
+        {children}
+      </BlockContent>
+    </div>
+  );
+}
+
+function DraggableBehavior({
+  controlsActive,
+  editor,
+  element,
+  nodeRef,
+  path,
+  previewRef,
+}: Pick<PlateElementProps, 'editor' | 'element' | 'path'> & {
+  controlsActive: boolean;
+  nodeRef: React.RefObject<HTMLDivElement | null>;
+  previewRef: React.RefObject<HTMLDivElement | null>;
+}) {
   const blockSelectionApi = editor.getApi(BlockSelectionPlugin).blockSelection;
 
-  const { isAboutToDrag, isDragging, nodeRef, previewRef, handleRef } =
-    useDraggable({
-      element,
-      onDropHandler: (_, { dragItem }) => {
-        const id = (dragItem as { id: string[] | string }).id;
+  const { dragRef: handleRef, isAboutToDrag, isDragging } = useDndNode({
+    element,
+    multiplePreviewRef: previewRef,
+    nodeRef,
+    onDropHandler: (_, { dragItem }) => {
+      const id = (dragItem as { id: string[] | string }).id;
 
-        if (blockSelectionApi) {
-          blockSelectionApi.add(id);
-        }
-        resetPreview();
-      },
-    });
+      if (blockSelectionApi) {
+        blockSelectionApi.add(id);
+      }
+      resetPreview();
+    },
+  });
 
   const isInColumn = path.length === 3;
   const isInTable = path.length === 4;
 
   const [previewTop, setPreviewTop] = React.useState(0);
+  const showControls = controlsActive || isAboutToDrag || isDragging;
 
   const resetPreview = () => {
     if (previewRef.current) {
@@ -117,23 +293,17 @@ function Draggable(props: PlateElementProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAboutToDrag]);
 
-  const [dragButtonTop, setDragButtonTop] = React.useState(0);
+  React.useEffect(() => {
+    const shell = nodeRef.current?.parentElement;
+
+    shell?.classList.toggle('opacity-50', isDragging);
+
+    return () => shell?.classList.remove('opacity-50');
+  }, [isDragging, nodeRef]);
 
   return (
-    <div
-      className={cn(
-        'relative',
-        isDragging && 'opacity-50',
-        getPluginByType(editor, element.type)?.node.isContainer
-          ? 'group/container'
-          : 'group'
-      )}
-      onMouseEnter={() => {
-        if (isDragging) return;
-        setDragButtonTop(calcDragButtonTop(editor, element));
-      }}
-    >
-      {!isInTable && (
+    <>
+      {showControls && !isInTable && (
         <Gutter>
           <div
             className={cn(
@@ -151,11 +321,13 @@ function Draggable(props: PlateElementProps) {
             >
               <div
                 className="absolute left-0 flex h-6 w-full items-center gap-px"
-                style={{ top: `${dragButtonTop + 3}px` }}
+                style={{ top: getBlockToolbarTop(element.type) }}
               >
                 <InsertBelowButton />
                 <Button
-                  ref={handleRef}
+                  ref={(node) => {
+                    handleRef(node);
+                  }}
                   variant="ghost"
                   className="h-6 w-5 shrink-0 p-0"
                   data-plate-prevent-deselect
@@ -173,80 +345,92 @@ function Draggable(props: PlateElementProps) {
         </Gutter>
       )}
 
-      <div
-        ref={previewRef}
-        className={cn('-left-0 absolute hidden w-full')}
-        style={{ top: `${-previewTop}px` }}
-        contentEditable={false}
-      />
-
-      <div
-        ref={nodeRef}
-        className="slate-blockWrapper flow-root"
-        onContextMenuCapture={(event) => {
-          // 光标（无选中内容）在本块内且未块选时，plate 会在元素层
-          // stopPropagation 放行浏览器原生菜单；必须在捕获阶段抢先拦截，
-          // 改为唤起光标迷你菜单（粘贴）。判定条件与 plate 的
-          // addOnContextMenu 保持一致。
-          if (editor.dom.readOnly) return;
-          if (!editor.selection || editor.api.isExpanded()) return;
-          if (
-            editor.getOption(
-              BlockSelectionPlugin,
-              'isSelected',
-              element.id as string,
-            )
-          ) {
-            return;
-          }
-
-          const nodeEntry = editor.api.above();
-          const elementPath = editor.api.findPath(element);
-
-          if (
-            !nodeEntry ||
-            !elementPath ||
-            !PathApi.isCommon(elementPath, nodeEntry[1]) ||
-            editor.api.isVoid(nodeEntry[0] as TElement)
-          ) {
-            return;
-          }
-
-          const target = event.target as HTMLElement;
-
-          if (target.dataset?.plateOpenContextMenu === 'true') return;
-
-          event.preventDefault();
-          event.stopPropagation();
-
-          const position = { x: event.clientX, y: event.clientY };
-
-          setTimeout(() => {
-            editor
-              .getApi(BlockMenuPlugin)
-              .blockMenu.show(CARET_CONTEXT_MENU_ID, position);
-          }, 0);
-        }}
-        onContextMenu={(event) =>
-          editor
-            .getApi(BlockSelectionPlugin)
-            .blockSelection.addOnContextMenu({ element, event })
-        }
-      >
-        <MemoizedChildren>{children}</MemoizedChildren>
-        <DropLine />
-      </div>
-    </div>
+      {showControls && (
+        <div
+          ref={previewRef}
+          className={cn('-left-0 absolute hidden w-full')}
+          style={{ top: `${-previewTop}px` }}
+          contentEditable={false}
+        />
+      )}
+    </>
   );
 }
+
+const BlockContent = React.forwardRef<
+  HTMLDivElement,
+  Pick<PlateElementProps, 'children' | 'editor' | 'element'> & {
+    showDropLine: boolean;
+  }
+>(function BlockContent(
+  { children, editor, element, showDropLine },
+  nodeRef
+) {
+  return (
+    <div
+      ref={nodeRef}
+      className="slate-blockWrapper flow-root"
+      onContextMenuCapture={(event) => {
+        // 光标（无选中内容）在本块内且未块选时，plate 会在元素层
+        // stopPropagation 放行浏览器原生菜单；必须在捕获阶段抢先拦截，
+        // 改为唤起光标迷你菜单（粘贴）。判定条件与 plate 的
+        // addOnContextMenu 保持一致。
+        if (editor.dom.readOnly) return;
+        if (!editor.selection || editor.api.isExpanded()) return;
+        if (
+          editor.getOption(
+            BlockSelectionPlugin,
+            'isSelected',
+            element.id as string,
+          )
+        ) {
+          return;
+        }
+
+        const nodeEntry = editor.api.above();
+        const elementPath = editor.api.findPath(element);
+
+        if (
+          !nodeEntry ||
+          !elementPath ||
+          !PathApi.isCommon(elementPath, nodeEntry[1]) ||
+          editor.api.isVoid(nodeEntry[0] as TElement)
+        ) {
+          return;
+        }
+
+        const target = event.target as HTMLElement;
+
+        if (target.dataset?.plateOpenContextMenu === 'true') return;
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        const position = { x: event.clientX, y: event.clientY };
+
+        setTimeout(() => {
+          editor
+            .getApi(BlockMenuPlugin)
+            .blockMenu.show(CARET_CONTEXT_MENU_ID, position);
+        }, 0);
+      }}
+      onContextMenu={(event) =>
+        editor
+          .getApi(BlockSelectionPlugin)
+          .blockSelection.addOnContextMenu({ element, event })
+      }
+    >
+      <MemoizedChildren>{children}</MemoizedChildren>
+      {showDropLine ? <DropLine /> : null}
+    </div>
+  );
+});
 
 function Gutter({
   children,
   className,
   ...props
 }: React.ComponentProps<'div'>) {
-  const editor = useEditorRef();
-  const element = useElement();
   const isSelectionAreaVisible = usePluginOption(
     BlockSelectionPlugin,
     'isSelectionAreaVisible'
@@ -259,9 +443,6 @@ function Gutter({
       className={cn(
         'slate-gutterLeft',
         '-translate-x-full absolute top-0 z-50 flex h-full cursor-text hover:opacity-100 sm:opacity-0',
-        getPluginByType(editor, element.type)?.node.isContainer
-          ? 'group-hover/container:opacity-100'
-          : 'group-hover:opacity-100',
         isSelectionAreaVisible && 'hidden',
         !selected && 'opacity-0',
         className
@@ -661,13 +842,4 @@ const calculatePreviewTop = (
     currentMarginTop;
 
   return previewElementsTopDistance;
-};
-
-const calcDragButtonTop = (editor: PlateEditor, element: TElement): number => {
-  const child = editor.api.toDOMNode(element)!;
-
-  const currentMarginTopString = window.getComputedStyle(child).marginTop;
-  const currentMarginTop = Number(currentMarginTopString.replace('px', ''));
-
-  return currentMarginTop;
 };

@@ -5,7 +5,6 @@ import {
   DOCUMENT_REVIEW_MAP_NAME,
   documentVersionOperationAckSchema,
   executeDocumentVersionOperationSchema,
-  projectDocumentVersionValue,
   type DocumentVersionOperationAck,
 } from "@sharebrain/contracts";
 import {
@@ -22,11 +21,14 @@ import {
 } from "@sharebrain/db/schema";
 import { slateNodesToInsertDelta } from "@slate-yjs/core";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import type { Node } from "slate";
 import * as Y from "yjs";
 
 import type { CollabContext } from "./auth";
-import { extractDocumentCommentIds, storeDocumentSnapshot } from "./document-store";
+import {
+  extractDocumentCommentIds,
+  prepareDocumentYjsNodes,
+  storeDocumentSnapshot,
+} from "./document-store";
 
 const restoreGates = new Set<string>();
 
@@ -384,16 +386,16 @@ export async function executeDocumentVersionOperation(
         );
       }
 
-      let restoredValue: ReturnType<typeof projectDocumentVersionValue>;
+      let restoredValue: ReturnType<typeof prepareDocumentYjsNodes>;
       try {
-        restoredValue = projectDocumentVersionValue(source.value);
+        restoredValue = prepareDocumentYjsNodes(source.value);
       } catch {
         return failOperation(db, operation, "DOCUMENT_VERSION_VALUE_INVALID");
       }
       const sharedRoot = document.get("content", Y.XmlText);
       document.transact(() => {
         sharedRoot.delete(0, sharedRoot.length);
-        sharedRoot.applyDelta(slateNodesToInsertDelta(restoredValue as unknown as Node[]), { sanitize: false });
+        sharedRoot.applyDelta(slateNodesToInsertDelta(restoredValue), { sanitize: false });
         detachMissingDiscussions(document, restoredValue);
       }, { source: "local", skipStoreHooks: true, context: executorContext });
 
