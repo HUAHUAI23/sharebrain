@@ -1,11 +1,24 @@
 export { BaseEditorKit } from './editor-base-kit';
 export {
+  EDITOR_VERSION_DIFF_INPUT_BUDGET,
+  EDITOR_VERSION_DIFF_RESULT_BUDGET,
   cloneEditorVersionValue,
   computeEditorVersionDiff,
   estimateEditorVersionValue,
+  getEditorVersionDiffSegments,
+  hasEditorVersionDiff,
+  isEditorVersionDiffWithinBudget,
+  isEditorVersionValueWithinBudget,
+  type EditorVersionDiffSegment,
+  type EditorVersionValueBudget,
 } from './lib/version-history';
 export { VersionDiffKit, VersionDiffPlugin } from './kits/version-diff-kit';
-export { VersionDiff, type VersionDiffProps } from './ui/version-diff';
+export {
+  VersionDiff,
+  VersionDiffPreview,
+  type VersionDiffPreviewProps,
+  type VersionDiffProps,
+} from './ui/version-diff';
 export { VersionDiffLegend, type VersionDiffLegendProps } from './ui/version-diff-legend';
 export { VersionPreview, type VersionPreviewProps } from './ui/version-preview';
 export {

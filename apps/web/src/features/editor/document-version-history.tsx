@@ -36,33 +36,35 @@ import {
 
 type DocumentVersionHistoryProps = {
   documentId: string;
-  initialCurrentValue: Value;
-  initialBaseStateVector: string;
   initialSelectedKey?: string;
   currentActor: DocumentVersionSummary["lastEditor"];
   memberAvatarUrls: Readonly<Record<string, string>>;
   canRestore: boolean;
   getCollabProvider: () => HocuspocusProviderWrapper | null;
-  getLiveSnapshot: () => { value: Value; baseStateVector: string };
+  getLiveBaseStateVector: () => string;
+  getLiveValue: () => Value;
   onClose: () => void;
 };
 
+const emptyCurrentValue: Value = [{ type: "p", children: [{ text: "" }] }];
+
 export function DocumentVersionHistory({
   documentId,
-  initialCurrentValue,
-  initialBaseStateVector,
   initialSelectedKey = CURRENT_DOCUMENT_VERSION_KEY,
   currentActor,
   memberAvatarUrls,
   canRestore,
   getCollabProvider,
-  getLiveSnapshot,
+  getLiveBaseStateVector,
+  getLiveValue,
   onClose,
 }: DocumentVersionHistoryProps) {
   const rootRef = useRef<HTMLElement>(null);
   const queryClient = useQueryClient();
-  const [currentValue, setCurrentValue] = useState(initialCurrentValue);
-  const [baseStateVector, setBaseStateVector] = useState(initialBaseStateVector);
+  const [currentValue, setCurrentValue] = useState(emptyCurrentValue);
+  const [currentValueLoading, setCurrentValueLoading] = useState(
+    initialSelectedKey === CURRENT_DOCUMENT_VERSION_KEY,
+  );
   const [confirmMode, setConfirmMode] = useState<"normal" | "force" | null>(null);
   const [executing, setExecuting] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
@@ -95,6 +97,18 @@ export function DocumentVersionHistory({
     !detail.data ||
     detail.data.unavailableMediaCount > 0 ||
     executing;
+
+  useEffect(() => {
+    if (state.selectedKey !== CURRENT_DOCUMENT_VERSION_KEY) return;
+
+    setCurrentValueLoading(true);
+    const timer = window.setTimeout(() => {
+      setCurrentValue(getLiveValue());
+      setCurrentValueLoading(false);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [getLiveValue, state.selectedKey]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -152,14 +166,12 @@ export function DocumentVersionHistory({
       const operation = await restoreDocumentVersion({
         documentId,
         versionId: selectedVersionId,
-        baseStateVector,
+        baseStateVector: getLiveBaseStateVector(),
         provider,
         force,
       });
       if (operation.status === "conflict") {
-        const live = getLiveSnapshot();
-        setCurrentValue(live.value);
-        setBaseStateVector(live.baseStateVector);
+        setCurrentValue(getLiveValue());
         setConfirmMode("force");
         return;
       }
@@ -275,7 +287,7 @@ export function DocumentVersionHistory({
               : {})}
             mode={state.mode}
             {...(comparisonLabel ? { comparisonLabel } : {})}
-            loading={Boolean(selectedVersionId && detail.isLoading)}
+            loading={selectedVersionId ? detail.isLoading : currentValueLoading}
             error={detail.isError}
             onRetry={() => void detail.refetch()}
           />

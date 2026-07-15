@@ -32,6 +32,7 @@ import { ArrowLeft } from "lucide-react";
 import { KEYS, type TElement, type Value } from "platejs";
 import { Plate, usePlateEditor, type PlateChunkProps } from "platejs/react";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -229,8 +230,6 @@ function DocumentEditor({
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(normalizeDocumentTitleInput(initialDocument.title));
   const [historySnapshot, setHistorySnapshot] = useState<{
-    value: Value;
-    baseStateVector: string;
     selectedKey: string;
   } | null>(null);
   const [historyPanel, setHistoryPanel] = useState<{
@@ -240,10 +239,7 @@ function DocumentEditor({
     open: false,
     tab: capabilities?.activityHistoryRead ? "activity" : "versions",
   });
-  const [activityRevision, setActivityRevision] = useState<{
-    activityId: string;
-    baseStateVector: string;
-  } | null>(null);
+  const [activityRevision, setActivityRevision] = useState<string | null>(null);
   const savedTitleRef = useRef(initialDocument.title);
   const uploadEditorFile = useMemo(() => createEditorUploadHandler({ documentId }), [documentId]);
   const participantDirectory = useMemo(
@@ -481,13 +477,14 @@ function DocumentEditor({
     editor.tf.focus();
   };
 
-  const getLiveVersionSnapshot = () => {
+  const getLiveVersionValue = useCallback(() => {
     const snapshot = cloneEditorVersionValue(editor.children as Value);
-    return {
-      value: toPlateValue(projectDocumentVersionValue(snapshot)),
-      baseStateVector: encodeDocumentStateVector(editor.getOptions(YjsPlugin).ydoc),
-    };
-  };
+    return toPlateValue(projectDocumentVersionValue(snapshot));
+  }, [editor]);
+  const getLiveVersionBaseStateVector = useCallback(
+    () => encodeDocumentStateVector(editor.getOptions(YjsPlugin).ydoc),
+    [editor],
+  );
 
   const openHistoryPanel = (tab: DocumentHistoryTab) => {
     setHistorySnapshot(null);
@@ -496,9 +493,8 @@ function DocumentEditor({
   };
 
   const openVersionHistory = (selectedKey = CURRENT_DOCUMENT_VERSION_KEY) => {
-    const snapshot = getLiveVersionSnapshot();
     setActivityRevision(null);
-    setHistorySnapshot({ ...snapshot, selectedKey });
+    setHistorySnapshot({ selectedKey });
   };
 
   const closeHistory = () => {
@@ -581,8 +577,6 @@ function DocumentEditor({
           {historySnapshot ? (
             <DocumentVersionHistory
               documentId={documentId}
-              initialCurrentValue={historySnapshot.value}
-              initialBaseStateVector={historySnapshot.baseStateVector}
               initialSelectedKey={historySnapshot.selectedKey}
               currentActor={{
                 id: user.id,
@@ -592,7 +586,8 @@ function DocumentEditor({
               memberAvatarUrls={participantDirectory.avatarUrls}
               canRestore={Boolean(capabilities?.versionHistoryRestore)}
               getCollabProvider={() => getEditorCollabProvider(editor)}
-              getLiveSnapshot={getLiveVersionSnapshot}
+              getLiveBaseStateVector={getLiveVersionBaseStateVector}
+              getLiveValue={getLiveVersionValue}
               onClose={() => setHistorySnapshot(null)}
             />
           ) : null}
@@ -612,20 +607,18 @@ function DocumentEditor({
             onTabChange={(tab) => setHistoryPanel((current) => ({ ...current, tab }))}
             onClose={closeHistory}
             onOpenActivityRevision={(activityId) => {
-              const snapshot = getLiveVersionSnapshot();
               setHistorySnapshot(null);
-              setActivityRevision({ activityId, baseStateVector: snapshot.baseStateVector });
+              setActivityRevision(activityId);
             }}
             onOpenVersion={openVersionHistory}
           />
           {activityRevision ? (
             <DocumentActivityRevision
               documentId={documentId}
-              activityId={activityRevision.activityId}
-              initialBaseStateVector={activityRevision.baseStateVector}
+              activityId={activityRevision}
               canRestore={Boolean(capabilities?.versionHistoryRestore)}
               getCollabProvider={() => getEditorCollabProvider(editor)}
-              getLiveBaseStateVector={() => getLiveVersionSnapshot().baseStateVector}
+              getLiveBaseStateVector={getLiveVersionBaseStateVector}
               onBack={() => setActivityRevision(null)}
               onClose={closeHistory}
             />

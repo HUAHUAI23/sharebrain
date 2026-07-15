@@ -5,10 +5,13 @@ import type { Value } from 'platejs';
 import { BaseEditorKit } from '../editor-base-kit';
 import { VersionDiffKit } from '../kits/version-diff-kit';
 import {
+  EDITOR_VERSION_DIFF_INPUT_BUDGET,
   computeEditorVersionDiff,
-  estimateEditorVersionValue,
+  isEditorVersionDiffWithinBudget,
 } from '../lib/version-history';
 import { VersionPreview } from './version-preview';
+
+const versionDiffEditorKit = [...BaseEditorKit, ...VersionDiffKit];
 
 export type VersionDiffProps = {
   previous: Value;
@@ -19,21 +22,38 @@ export type VersionDiffProps = {
   onLimitExceeded?: () => void;
 };
 
+export type VersionDiffPreviewProps = {
+  value: Value;
+  className?: string;
+};
+
+export function VersionDiffPreview({
+  value,
+  className,
+}: VersionDiffPreviewProps) {
+  return (
+    <VersionPreview
+      value={value}
+      plugins={versionDiffEditorKit}
+      {...(className ? { className } : {})}
+    />
+  );
+}
+
 export function VersionDiff({
   previous,
   current,
-  maxNodes = 50_000,
-  maxBytes = 5 * 1024 * 1024,
+  maxNodes = EDITOR_VERSION_DIFF_INPUT_BUDGET.maxNodes,
+  maxBytes = EDITOR_VERSION_DIFF_INPUT_BUDGET.maxBytes,
   className,
   onLimitExceeded,
 }: VersionDiffProps) {
   const exceedsLimit = useMemo(() => {
-    const previousEstimate = estimateEditorVersionValue(previous);
-    const currentEstimate = estimateEditorVersionValue(current);
-    return (
-      previousEstimate.nodes + currentEstimate.nodes > maxNodes ||
-      previousEstimate.bytes + currentEstimate.bytes > maxBytes
-    );
+    return !isEditorVersionDiffWithinBudget({
+      previous,
+      current,
+      budget: { maxBytes, maxNodes },
+    });
   }, [current, maxBytes, maxNodes, previous]);
 
   useEffect(() => {
@@ -47,7 +67,7 @@ export function VersionDiff({
         : computeEditorVersionDiff({
             previous,
             current,
-            plugins: [...BaseEditorKit, ...VersionDiffKit],
+            plugins: versionDiffEditorKit,
           }),
     [current, exceedsLimit, previous]
   );
@@ -55,7 +75,7 @@ export function VersionDiff({
   return (
     <VersionPreview
       value={value}
-      plugins={exceedsLimit ? BaseEditorKit : [...BaseEditorKit, ...VersionDiffKit]}
+      plugins={exceedsLimit ? BaseEditorKit : versionDiffEditorKit}
       {...(className ? { className } : {})}
     />
   );

@@ -1,5 +1,5 @@
-// 组合业务无关的只读 Plate preview/diff primitive，并覆盖加载、错误和超限状态。
-import { VersionDiff, VersionDiffLegend, VersionPreview } from "@sharebrain/editor";
+// 组合 Worker Diff、变更上下文和只读预览，并覆盖加载、错误和超限状态。
+import { VersionDiffLegend, VersionDiffPreview, VersionPreview } from "@sharebrain/editor";
 import { m } from "@sharebrain/i18n";
 import { Button } from "@sharebrain/ui/components/button";
 import { NotionEmpty } from "@sharebrain/ui/components/notion";
@@ -12,6 +12,8 @@ import {
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { Value } from "platejs";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import { useDocumentVersionDiff } from "./document-version-diff";
 
 type DocumentVersionHistoryContentProps = {
   value: Value;
@@ -34,9 +36,15 @@ export function DocumentVersionHistoryContent({
 }: DocumentVersionHistoryContentProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const changeIndexRef = useRef(0);
-  const [diffLimited, setDiffLimited] = useState(false);
   const [changeCount, setChangeCount] = useState(0);
   const [changeIndex, setChangeIndex] = useState(0);
+  const diff = useDocumentVersionDiff({
+    current: value,
+    enabled: mode === "changes" && Boolean(previousValue) && !loading && !error,
+    ...(previousValue ? { previous: previousValue } : {}),
+  });
+  const diffLimited = diff.status === "limited";
+  const diffError = diff.status === "error";
 
   const getChangeElements = useCallback(() => {
     const root = contentRef.current;
@@ -56,7 +64,6 @@ export function DocumentVersionHistoryContent({
   }, []);
 
   useEffect(() => {
-    setDiffLimited(false);
     setChangeCount(0);
     setChangeIndex(0);
     changeIndexRef.current = 0;
@@ -64,7 +71,15 @@ export function DocumentVersionHistoryContent({
 
   useEffect(() => {
     const root = contentRef.current;
-    if (!root || mode !== "changes" || !previousValue || diffLimited) return;
+    if (
+      !root ||
+      mode !== "changes" ||
+      !previousValue ||
+      diff.status !== "ready" ||
+      diff.segments.length === 0
+    ) {
+      return;
+    }
 
     let frame = 0;
     const syncChanges = () => {
@@ -90,7 +105,7 @@ export function DocumentVersionHistoryContent({
         element.removeAttribute("data-version-diff-active");
       });
     };
-  }, [diffLimited, getChangeElements, markActiveChange, mode, previousValue, value]);
+  }, [diff, getChangeElements, markActiveChange, mode, previousValue, value]);
 
   const navigateToChange = (offset: number) => {
     const elements = getChangeElements();
@@ -105,8 +120,6 @@ export function DocumentVersionHistoryContent({
     markActiveChange(elements, nextIndex);
     elements[nextIndex]?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
-
-  const handleLimitExceeded = useCallback(() => setDiffLimited(true), []);
 
   if (loading) {
     return (
@@ -191,24 +204,77 @@ export function DocumentVersionHistoryContent({
               update: m.document_version_updated(),
             }}
           />
-          {diffLimited ? (
+          {diff.status === "computing" ? (
+            <span className="text-xs text-muted-foreground">
+              {m.document_version_diff_calculating()}
+            </span>
+          ) : diffLimited ? (
             <span className="text-xs text-muted-foreground">{m.document_version_diff_too_large()}</span>
+          ) : diffError ? (
+            <span className="text-xs text-destructive">{m.document_version_diff_error()}</span>
           ) : null}
         </div>
       ) : null}
       {mode === "changes" && previousValue ? (
-        <VersionDiff
-          previous={previousValue}
-          current={value}
-          className="min-h-[56vh] w-full text-base leading-7 text-foreground"
-          onLimitExceeded={handleLimitExceeded}
-        />
+        diff.status === "computing" || diff.status === "idle" ? (
+          <div className="grid gap-4 py-4">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+            <Skeleton className="h-28 w-full" />
+          </div>
+        ) : diff.status === "ready" && diff.segments.length > 0 ? (
+          <div className="min-h-[56vh] w-full">
+            {diff.segments.map((segment, index) => (
+              <div key={`${segment.startIndex}:${segment.endIndex}`}>
+                {segment.omittedBefore > 0 ? (
+                  <DiffOmission count={segment.omittedBefore} />
+                ) : null}
+                <VersionDiffPreview
+                  value={segment.value}
+                  className="w-full text-base leading-7 text-foreground"
+                />
+                {index === diff.segments.length - 1 && segment.omittedAfter > 0 ? (
+                  <DiffOmission count={segment.omittedAfter} />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : diff.status === "ready" ? (
+          <NotionEmpty className="grid min-h-[56vh] place-content-center text-center">
+            {m.document_version_no_changes()}
+          </NotionEmpty>
+        ) : (
+          <div className="grid min-h-[56vh] content-start gap-3">
+            {diffError ? (
+              <Button variant="outline" size="sm" className="w-fit" onClick={diff.retry}>
+                {m.common_retry()}
+              </Button>
+            ) : null}
+            <VersionPreview
+              value={value}
+              className="w-full text-base leading-7 text-foreground"
+            />
+          </div>
+        )
       ) : (
         <VersionPreview
           value={value}
           className="min-h-[56vh] w-full text-base leading-7 text-foreground"
         />
       )}
+    </div>
+  );
+}
+
+function DiffOmission({ count }: { count: number }) {
+  return (
+    <div
+      className="my-5 flex items-center gap-3 text-xs text-muted-foreground"
+      contentEditable={false}
+    >
+      <span className="h-px flex-1 bg-border-subtle" />
+      <span>{m.document_version_unchanged_blocks({ count: String(count) })}</span>
+      <span className="h-px flex-1 bg-border-subtle" />
     </div>
   );
 }

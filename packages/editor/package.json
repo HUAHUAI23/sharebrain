@@ -8,6 +8,14 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./version-history": {
+      "types": "./src/lib/version-history.ts",
+      "default": "./src/lib/version-history.ts"
+    },
+    "./version-history-core": {
+      "types": "./src/lib/version-history-core.ts",
+      "default": "./src/lib/version-history-core.ts"
+    },
     "./kits/*": {
       "types": "./src/kits/*.tsx",
       "default": "./src/kits/*.tsx"

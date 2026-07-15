@@ -6,6 +6,7 @@ import {
   createInitialDocumentVersionHistoryState,
   documentVersionHistoryReducer,
 } from "./document-version-history.state";
+import { computeDocumentVersionDiff } from "./document-version-diff.worker-core";
 
 describe("document version history state", () => {
   test("opens the current content at the version list", () => {
@@ -45,5 +46,41 @@ describe("document version history state", () => {
       mode: "preview",
       mobilePane: "content",
     });
+  });
+});
+
+describe("document version diff worker", () => {
+  test("returns only changed block context for valid large inputs", () => {
+    const previous = Array.from({ length: 120 }, (_, index) => ({
+      type: "p",
+      children: [{ text: `Block ${index}` }],
+    }));
+    const current = structuredClone(previous);
+    current[60]!.children[0]!.text = "Changed";
+
+    const result = computeDocumentVersionDiff({
+      requestId: 1,
+      previous,
+      current,
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.segments).toHaveLength(1);
+    expect(result.segments[0]?.startIndex).toBe(59);
+    expect(result.segments[0]?.endIndex).toBe(62);
+  });
+
+  test("reports no segments when the versions are equivalent", () => {
+    const value = [{ type: "p", children: [{ text: "Same" }] }];
+    const result = computeDocumentVersionDiff({
+      requestId: 2,
+      previous: value,
+      current: structuredClone(value),
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.segments).toEqual([]);
   });
 });

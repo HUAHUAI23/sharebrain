@@ -30,7 +30,6 @@ import { restoreDocumentHistorySource } from "./document-version-history.restore
 type DocumentActivityRevisionProps = {
   documentId: string;
   activityId: string;
-  initialBaseStateVector: string;
   canRestore: boolean;
   getCollabProvider: () => HocuspocusProviderWrapper | null;
   getLiveBaseStateVector: () => string;
@@ -43,7 +42,6 @@ const emptyValue: Value = [];
 export function DocumentActivityRevision({
   documentId,
   activityId,
-  initialBaseStateVector,
   canRestore,
   getCollabProvider,
   getLiveBaseStateVector,
@@ -54,7 +52,6 @@ export function DocumentActivityRevision({
   const queryClient = useQueryClient();
   const detail = useDocumentActivityDetail(documentId, activityId, true);
   const [mode, setMode] = useState<"preview" | "changes">("changes");
-  const [baseStateVector, setBaseStateVector] = useState(initialBaseStateVector);
   const [confirmMode, setConfirmMode] = useState<"normal" | "force" | null>(null);
   const [executing, setExecuting] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
@@ -114,12 +111,11 @@ export function DocumentActivityRevision({
       const operation = await restoreDocumentHistorySource({
         documentId,
         source: { kind: "activity", id: activityId },
-        baseStateVector,
+        baseStateVector: getLiveBaseStateVector(),
         provider,
         force,
       });
       if (operation.status === "conflict") {
-        setBaseStateVector(getLiveBaseStateVector());
         setConfirmMode("force");
         return;
       }
