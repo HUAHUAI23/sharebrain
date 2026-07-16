@@ -1,5 +1,6 @@
 
 
+// 渲染可编辑代码块；非常用语法仅在用户打开语言选择器时加载。
 import * as React from 'react';
 
 import { formatCodeBlock, isLangSupported } from '@platejs/code-block';
@@ -29,6 +30,11 @@ import {
   PopoverTrigger,
 } from '@sharebrain/ui/components/popover';
 import { cn } from '@sharebrain/ui/lib/utils';
+
+import {
+  isCodeBlockLanguageLoaded,
+  loadCodeBlockLanguage,
+} from '../lib/code-block-lowlight';
 
 type CodeBlockElementProps = PlateElementProps<TCodeBlockElement> & {
   showLanguageLabel?: boolean;
@@ -143,6 +149,16 @@ export function CodeBlockElement({
 }: CodeBlockElementProps) {
   const { editor, element } = props;
 
+  React.useEffect(() => {
+    const language = element.lang;
+
+    if (!language || isCodeBlockLanguageLoaded(language)) return;
+
+    void loadCodeBlockLanguage(language).then((loaded) => {
+      if (loaded) editor.api.redecorate();
+    });
+  }, [editor, element.lang]);
+
   return (
     <PlateElement
       className="py-1 **:[.hljs-addition]:bg-[#f0fff4] **:[.hljs-addition]:text-[#22863a] dark:**:[.hljs-addition]:bg-[#3c5743] dark:**:[.hljs-addition]:text-[#ceead5] **:[.hljs-attr,.hljs-attribute,.hljs-literal,.hljs-meta,.hljs-number,.hljs-operator,.hljs-selector-attr,.hljs-selector-class,.hljs-selector-id,.hljs-variable]:text-[#005cc5] dark:**:[.hljs-attr,.hljs-attribute,.hljs-literal,.hljs-meta,.hljs-number,.hljs-operator,.hljs-selector-attr,.hljs-selector-class,.hljs-selector-id,.hljs-variable]:text-[#6596cf] **:[.hljs-built\\\\_in,.hljs-symbol]:text-[#e36209] dark:**:[.hljs-built\\\\_in,.hljs-symbol]:text-[#c3854e] **:[.hljs-bullet]:text-[#735c0f] **:[.hljs-comment,.hljs-code,.hljs-formula]:text-[#6a737d] dark:**:[.hljs-comment,.hljs-code,.hljs-formula]:text-[#6a737d] **:[.hljs-deletion]:bg-[#ffeef0] **:[.hljs-deletion]:text-[#b31d28] dark:**:[.hljs-deletion]:bg-[#473235] dark:**:[.hljs-deletion]:text-[#e7c7cb] **:[.hljs-emphasis]:italic **:[.hljs-keyword,.hljs-doctag,.hljs-template-tag,.hljs-template-variable,.hljs-type,.hljs-variable.language\\\\_]:text-[#d73a49] dark:**:[.hljs-keyword,.hljs-doctag,.hljs-template-tag,.hljs-template-variable,.hljs-type,.hljs-variable.language\\\\_]:text-[#ee6960] **:[.hljs-name,.hljs-quote,.hljs-selector-tag,.hljs-selector-pseudo]:text-[#22863a] dark:**:[.hljs-name,.hljs-quote,.hljs-selector-tag,.hljs-selector-pseudo]:text-[#36a84f] **:[.hljs-regexp,.hljs-string,.hljs-meta_.hljs-string]:text-[#032f62] dark:**:[.hljs-regexp,.hljs-string,.hljs-meta_.hljs-string]:text-[#3593ff] **:[.hljs-section]:font-bold **:[.hljs-section]:text-[#005cc5] dark:**:[.hljs-section]:text-[#61a5f2] **:[.hljs-strong]:font-bold **:[.hljs-title,.hljs-title.class\\\\_,.hljs-title.class\\\\_.inherited\\\\_\\\\_,.hljs-title.function\\\\_]:text-[#6f42c1] dark:**:[.hljs-title,.hljs-title.class\\\\_,.hljs-title.class\\\\_.inherited\\\\_\\\\_,.hljs-title.function\\\\_]:text-[#a77bfa]"
@@ -245,12 +261,15 @@ function CodeBlockCombobox({
                   className="cursor-pointer"
                   value={language.value}
                   onSelect={(value) => {
-                    editor.tf.setNodes<TCodeBlockElement>(
-                      { lang: value },
-                      { at: element }
-                    );
-                    setSearchValue(value);
-                    setOpen(false);
+                    void loadCodeBlockLanguage(value).then(() => {
+                      editor.tf.setNodes<TCodeBlockElement>(
+                        { lang: value },
+                        { at: element }
+                      );
+                      editor.api.redecorate();
+                      setSearchValue(value);
+                      setOpen(false);
+                    });
                   }}
                 >
                   <Check

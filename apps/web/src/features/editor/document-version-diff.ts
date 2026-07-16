@@ -1,5 +1,5 @@
 // 管理可取消的大文档 Diff Worker 生命周期，并向历史内容组件暴露稳定状态。
-import type { EditorVersionDiffSegment } from "@sharebrain/editor";
+import type { EditorVersionDiffSegment } from "@sharebrain/editor/version-history-core";
 import type { Value } from "platejs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 

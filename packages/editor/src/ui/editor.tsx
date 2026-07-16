@@ -11,7 +11,7 @@ import { PlateContainer, PlateContent, PlateView } from 'platejs/react';
 import { cn } from '@sharebrain/ui/lib/utils';
 
 const editorContainerVariants = cva(
-  'relative w-full cursor-text select-text overflow-y-auto caret-primary selection:bg-brand/25 focus-visible:outline-none [&_.slate-selection-area]:z-50 [&_.slate-selection-area]:border [&_.slate-selection-area]:border-brand/25 [&_.slate-selection-area]:bg-brand/15',
+  'relative min-w-0 w-full cursor-text select-text overflow-y-auto caret-primary selection:bg-brand/25 focus-visible:outline-none [&_.slate-selection-area]:z-50 [&_.slate-selection-area]:border [&_.slate-selection-area]:border-brand/25 [&_.slate-selection-area]:bg-brand/15',
   {
     defaultVariants: {
       variant: 'default',
@@ -26,6 +26,7 @@ const editorContainerVariants = cva(
         ),
         default: 'h-full',
         demo: 'h-[650px]',
+        document: 'h-auto overflow-y-visible',
         select: cn(
           'group rounded-md border border-input ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2',
           'has-data-readonly:w-fit has-data-readonly:cursor-default has-data-readonly:border-transparent has-data-readonly:focus-within:[box-shadow:none]'
@@ -35,6 +36,19 @@ const editorContainerVariants = cva(
   }
 );
 
+export const getEditorContainerClassName = ({
+  className,
+  variant,
+}: {
+  className?: string | undefined;
+  variant?: VariantProps<typeof editorContainerVariants>['variant'] | undefined;
+}) =>
+  cn(
+    'ignore-click-outside/toolbar',
+    editorContainerVariants({ variant }),
+    className
+  );
+
 export function EditorContainer({
   className,
   variant,
@@ -42,11 +56,7 @@ export function EditorContainer({
 }: React.ComponentProps<'div'> & VariantProps<typeof editorContainerVariants>) {
   return (
     <PlateContainer
-      className={cn(
-        'ignore-click-outside/toolbar',
-        editorContainerVariants({ variant }),
-        className
-      )}
+      className={getEditorContainerClassName({ className, variant })}
       {...props}
     />
   );
@@ -55,7 +65,7 @@ export function EditorContainer({
 const editorVariants = cva(
   cn(
     'group/editor',
-    'relative w-full cursor-text select-text overflow-x-hidden whitespace-break-spaces break-words',
+    'relative min-w-0 w-full cursor-text select-text overflow-x-hidden whitespace-break-spaces break-words',
     'rounded-md ring-offset-background focus-visible:outline-none',
     '**:data-slate-placeholder:!top-1/2 **:data-slate-placeholder:-translate-y-1/2 placeholder:text-muted-foreground/80 **:data-slate-placeholder:text-muted-foreground/80 **:data-slate-placeholder:opacity-100!',
     '[&_strong]:font-bold'

@@ -161,7 +161,8 @@
     calc(100vw - 64px)
   );
   display: grid;
-  padding: 144px 16px 104px;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 144px 0 104px;
   gap: 16px;
 }
 

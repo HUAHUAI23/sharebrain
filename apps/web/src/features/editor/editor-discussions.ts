@@ -22,6 +22,8 @@ import type { PlateEditor } from "platejs/react";
 import { useEffect } from "react";
 import * as Y from "yjs";
 
+import { subscribeEditorYjsSync } from "./editor-yjs-bootstrap";
+
 type DiscussionYMap = Y.Map<unknown>;
 type CommentYMap = Y.Map<unknown>;
 
@@ -368,8 +370,8 @@ export function useEditorDiscussionsBridge(editor: PlateEditor, initialDiscussio
       });
     });
 
-    editor.setOption(YjsPlugin, "onSyncChange", ({ isSynced }) => {
-      if (isSynced) initializeReviewState();
+    const unsubscribeSync = subscribeEditorYjsSync(editor, ({ isSynced, type }) => {
+      if (isSynced && type !== "indexeddb") initializeReviewState();
     });
 
     if (editor.getOption(YjsPlugin, "_isSynced")) {
@@ -380,8 +382,8 @@ export function useEditorDiscussionsBridge(editor: PlateEditor, initialDiscussio
 
     return () => {
       reviewMap.unobserveDeep(syncEditorFromYjs);
+      unsubscribeSync();
       editor.setOption(discussionPlugin, "onDiscussionAction", null);
-      editor.setOption(YjsPlugin, "onSyncChange", undefined);
     };
   }, [editor, initialDiscussions]);
 }

@@ -20,12 +20,31 @@ import type { HocuspocusProviderWrapper } from "@platejs/yjs";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, RotateCcw, X } from "lucide-react";
 import type { Value } from "platejs";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useDocumentActivityDetail } from "./document-activity-history.queries";
-import { DocumentVersionHistoryContent } from "./document-version-history-content";
 import { restoreDocumentHistorySource } from "./document-version-history.restore";
+
+const DocumentVersionHistoryContent = lazy(() =>
+  import("./document-version-history-content").then((module) => ({
+    default: module.DocumentVersionHistoryContent,
+  })),
+);
+
+function DocumentVersionHistoryContentFallback() {
+  return (
+    <div
+      aria-hidden="true"
+      className="mx-auto grid w-full max-w-[820px] gap-4 px-6 py-10 sm:px-12 lg:px-20"
+    >
+      <div className="h-7 w-2/5 animate-pulse rounded bg-muted" />
+      <div className="h-4 w-full animate-pulse rounded bg-muted" />
+      <div className="h-4 w-5/6 animate-pulse rounded bg-muted" />
+      <div className="h-32 w-full animate-pulse rounded bg-muted" />
+    </div>
+  );
+}
 
 type DocumentActivityRevisionProps = {
   documentId: string;
@@ -247,15 +266,17 @@ export function DocumentActivityRevision({
         </div>
       ) : null}
       <main className="min-h-0 flex-1 overflow-y-auto">
-        <DocumentVersionHistoryContent
-          value={value}
-          {...(previousValue ? { previousValue } : {})}
-          mode={effectiveMode}
-          comparisonLabel={m.document_activity_compare_session()}
-          loading={detail.isLoading}
-          error={detail.isError || Boolean(detail.data && !detail.data.inspectable)}
-          onRetry={() => void detail.refetch()}
-        />
+        <Suspense fallback={<DocumentVersionHistoryContentFallback />}>
+          <DocumentVersionHistoryContent
+            value={value}
+            {...(previousValue ? { previousValue } : {})}
+            mode={effectiveMode}
+            comparisonLabel={m.document_activity_compare_session()}
+            loading={detail.isLoading}
+            error={detail.isError || Boolean(detail.data && !detail.data.inspectable)}
+            onRetry={() => void detail.refetch()}
+          />
+        </Suspense>
       </main>
       {restoreError ? (
         <div className="absolute right-4 bottom-4 max-w-sm rounded-md border border-destructive/20 bg-background px-3 py-2 text-sm text-destructive shadow-sm">

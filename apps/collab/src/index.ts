@@ -15,6 +15,7 @@ import * as Y from "yjs";
 
 import { type CollabContext, resolveCollabContext } from "./auth";
 import { DocumentActivityTracker } from "./document-activity-tracker";
+import { DocumentSnapshotCache } from "./document-snapshot-cache";
 import { loadDocumentSnapshot, storeDocumentSnapshot } from "./document-store";
 import {
   executeDocumentVersionOperation,
@@ -31,6 +32,10 @@ export function createCollabServer(
 ) {
   assertRestoreTopology(configuration);
   const activityTracker = new DocumentActivityTracker();
+  const snapshotCache =
+    configuration.COLLAB_REPLICA_COUNT === 1
+      ? new DocumentSnapshotCache()
+      : null;
   const executeWindows = new WeakMap<Connection, { count: number; startedAt: number }>();
   let server: Server<CollabContext>;
   server = new Server<CollabContext>({
@@ -51,25 +56,65 @@ export function createCollabServer(
       return context;
     },
     async onLoadDocument({ context, document }: onLoadDocumentPayload<CollabContext>) {
-      const snapshot = await loadDocumentSnapshot(db, context);
+      const loadStartedAt = performance.now();
+      const cachedSnapshot = snapshotCache?.get(context) ?? null;
+      const snapshot = cachedSnapshot ?? (await loadDocumentSnapshot(db, context));
+      if (!cachedSnapshot && snapshot) snapshotCache?.set(context, snapshot);
+      const snapshotLoadedAt = performance.now();
 
       if (snapshot) {
         Y.applyUpdate(document, snapshot);
       }
+      const snapshotAppliedAt = performance.now();
 
-      if (configuration.DOCUMENT_VERSION_RESTORE_ENABLED) {
-        await resumeDocumentVersionOperation(db, document, context);
-      }
+      const restoreResult = configuration.DOCUMENT_VERSION_RESTORE_ENABLED
+        ? await resumeDocumentVersionOperation(db, document, context)
+        : null;
+      if (restoreResult) snapshotCache?.delete(context);
+      const restoreCheckedAt = performance.now();
+      let activityInitialization: "deferred" | "disabled" | "synchronous" =
+        "disabled";
 
       if (configuration.DOCUMENT_ACTIVITY_HISTORY_ENABLED) {
-        activityTracker.initialize(document.name, document);
+        if (snapshot && !restoreResult) {
+          // 标准快照与权威 Y.Doc 状态一致。同步响应发出后再物化活动镜像；若首个
+          // 变更或保存先到，tracker 会先冲刷该快照，保证第一条活动仍有正确基线。
+          activityTracker.initializeDeferred(document.name, snapshot);
+          activityInitialization = "deferred";
+        } else {
+          activityTracker.initialize(document.name, document);
+          activityInitialization = "synchronous";
+        }
       }
+      const activityInitializedAt = performance.now();
+
+      console.info(
+        JSON.stringify({
+          event: "document.collab_load_timing",
+          snapshotSource: cachedSnapshot ? "memory" : "database",
+          snapshotBytes: snapshot?.byteLength ?? 0,
+          snapshotLoadMs: Math.round(snapshotLoadedAt - loadStartedAt),
+          snapshotApplyMs: Math.round(snapshotAppliedAt - snapshotLoadedAt),
+          restoreMs: Math.round(restoreCheckedAt - snapshotAppliedAt),
+          activityInitialization,
+          activityCriticalPathMs: Math.round(
+            activityInitializedAt - restoreCheckedAt,
+          ),
+          totalMs: Math.round(activityInitializedAt - loadStartedAt),
+        }),
+      );
 
       return document;
     },
     async onChange({ document, documentName, context, update }: onChangePayload<CollabContext>) {
       if (!configuration.DOCUMENT_ACTIVITY_HISTORY_ENABLED) return;
       activityTracker.capture({ document, documentName, context, update });
+    },
+    async afterHandleMessage({ documentName }) {
+      if (!configuration.DOCUMENT_ACTIVITY_HISTORY_ENABLED) return;
+
+      // 初始 SyncStep1 的回复已写入 WebSocket 后，再把快照物化为活动镜像。
+      activityTracker.startDeferredInitialization(documentName);
     },
     async beforeHandleMessage({ documentName }) {
       if (isDocumentRestoreGated(documentName)) {
@@ -102,6 +147,7 @@ export function createCollabServer(
           : { count: 1, startedAt: now },
       );
       try {
+        snapshotCache?.delete(connection.context as CollabContext);
         const ack = await executeDocumentVersionOperation(
           db,
           document,
@@ -143,6 +189,12 @@ export function createCollabServer(
       try {
         await storeDocumentSnapshot(db, lastContext, document, {
           activityBatches: activityDrain?.batches ?? [],
+          ...(snapshotCache
+            ? {
+                onSnapshotStored: (snapshot: Uint8Array) =>
+                  snapshotCache.set(lastContext, snapshot),
+              }
+            : {}),
         });
         if (activityDrain) activityTracker.commitDrain(documentName, activityDrain.token);
       } catch (error) {

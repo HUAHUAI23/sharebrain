@@ -130,6 +130,8 @@ export function AIMenu() {
 
   const isLoading = status === 'streaming' || status === 'submitted';
 
+  if (typeof chat.sendMessage !== 'function') return null;
+
   if (isLoading && mode === 'insert') return null;
 
   if (toolName === 'edit' && mode === 'chat' && isLoading) return null;

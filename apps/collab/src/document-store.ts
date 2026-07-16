@@ -126,7 +126,7 @@ export async function storeDocumentSnapshot(
   const plateJson = yTextToSlateElement(sharedRoot).children;
   const plainText = extractTextFromPlate(plateJson);
 
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     await tx
       .insert(documentCrdtSnapshots)
       .values({
@@ -181,10 +181,14 @@ export async function storeDocumentSnapshot(
     await upsertSearchItem(tx, context, plainText);
     return version;
   });
+
+  options.onSnapshotStored?.(snapshot);
+  return result;
 }
 
 type StoreDocumentOptions = {
   activityBatches?: DocumentActivityBatch[];
+  onSnapshotStored?: (snapshot: Uint8Array) => void;
   seal?: boolean;
   restore?: {
     operationId: string;

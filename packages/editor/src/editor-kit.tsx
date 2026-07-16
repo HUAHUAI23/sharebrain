@@ -14,7 +14,6 @@ import { CommentKit } from './kits/comment-kit';
 import { CursorOverlayKit } from './kits/cursor-overlay-kit';
 import { DiscussionKit } from './kits/discussion-kit';
 import { DndKit } from './kits/dnd-kit';
-import { DocxKit } from './kits/docx-kit';
 import { EmojiKit } from './kits/emoji-kit';
 import { ExitBreakKit } from './kits/exit-break-kit';
 import { FloatingToolbarKit } from './kits/floating-toolbar-kit';
@@ -74,7 +73,6 @@ export const EditorKit = [
   TrailingBlockPlugin,
 
   // Parsers
-  ...DocxKit,
   ...MarkdownKit,
 
   // UI

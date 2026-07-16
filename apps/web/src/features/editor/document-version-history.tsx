@@ -21,10 +21,9 @@ import type { HocuspocusProviderWrapper } from "@platejs/yjs";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, RotateCcw, X } from "lucide-react";
 import type { Value } from "platejs";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { DocumentVersionHistoryContent } from "./document-version-history-content";
 import { DocumentVersionHistoryList } from "./document-version-history-list";
 import { useDocumentVersionDetail, useDocumentVersionList } from "./document-version-history.queries";
 import { restoreDocumentVersion } from "./document-version-history.restore";
@@ -33,6 +32,26 @@ import {
   createInitialDocumentVersionHistoryState,
   documentVersionHistoryReducer,
 } from "./document-version-history.state";
+
+const DocumentVersionHistoryContent = lazy(() =>
+  import("./document-version-history-content").then((module) => ({
+    default: module.DocumentVersionHistoryContent,
+  })),
+);
+
+function DocumentVersionHistoryContentFallback() {
+  return (
+    <div
+      aria-hidden="true"
+      className="mx-auto grid w-full max-w-[820px] gap-4 px-6 py-10 sm:px-12 lg:px-20"
+    >
+      <div className="h-7 w-2/5 animate-pulse rounded bg-muted" />
+      <div className="h-4 w-full animate-pulse rounded bg-muted" />
+      <div className="h-4 w-5/6 animate-pulse rounded bg-muted" />
+      <div className="h-32 w-full animate-pulse rounded bg-muted" />
+    </div>
+  );
+}
 
 type DocumentVersionHistoryProps = {
   documentId: string;
@@ -280,17 +299,19 @@ export function DocumentVersionHistory({
               </NotionSegmentedButton>
             </NotionSegmentedControl>
           </div>
-          <DocumentVersionHistoryContent
-            value={(detail.data?.value as Value | undefined) ?? currentValue}
-            {...(detail.data
-              ? { previousValue: (detail.data.previousValue ?? []) as Value }
-              : {})}
-            mode={state.mode}
-            {...(comparisonLabel ? { comparisonLabel } : {})}
-            loading={selectedVersionId ? detail.isLoading : currentValueLoading}
-            error={detail.isError}
-            onRetry={() => void detail.refetch()}
-          />
+          <Suspense fallback={<DocumentVersionHistoryContentFallback />}>
+            <DocumentVersionHistoryContent
+              value={(detail.data?.value as Value | undefined) ?? currentValue}
+              {...(detail.data
+                ? { previousValue: (detail.data.previousValue ?? []) as Value }
+                : {})}
+              mode={state.mode}
+              {...(comparisonLabel ? { comparisonLabel } : {})}
+              loading={selectedVersionId ? detail.isLoading : currentValueLoading}
+              error={detail.isError}
+              onRetry={() => void detail.refetch()}
+            />
+          </Suspense>
         </main>
         <div
           className={`${state.mobilePane === "list" ? "block" : "max-sm:hidden"} min-h-0 border-l border-border-subtle max-sm:border-l-0`}

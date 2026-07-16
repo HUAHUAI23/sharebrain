@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { m } from '@sharebrain/i18n';
 import type { NodeEntry, TCommentText, Value } from 'platejs';
-import { NodeApi } from 'platejs';
+import { ElementApi, NodeApi } from 'platejs';
 import { useEditorRef, usePluginOption } from 'platejs/react';
 
 import { Button } from '@sharebrain/ui/components/button';
@@ -35,6 +35,7 @@ import {
 } from '../lib/discussions';
 import { usePresentCommentIds } from '../lib/block-discussion-index';
 import { formatCommentDate } from './comment';
+import { useEditableChunkWindow } from './editable-chunk-window';
 
 const richToText = (value: Value) =>
   value.map((node) => NodeApi.string(node)).join('\n');
@@ -46,6 +47,7 @@ const richToText = (value: Value) =>
  */
 export function CommentsPopoverButton() {
   const editor = useEditorRef();
+  const chunkWindow = useEditableChunkWindow();
   const discussions = usePluginOption(discussionPlugin, 'discussions');
   const readStates = usePluginOption(discussionPlugin, 'readStates');
   const currentUserId = usePluginOption(discussionPlugin, 'currentUserId');
@@ -116,33 +118,64 @@ export function CommentsPopoverButton() {
         markEditorDiscussionRead(editor, discussion);
         return;
       }
-      const entries = editor
+      const initialEntries = editor
         .getApi(CommentPlugin)
         .comment.nodes({ at: [] }) as NodeEntry<TCommentText>[];
-      const entry = entries.find(
+      const initialEntry = initialEntries.find(
         ([node]) =>
           editor.getApi(CommentPlugin).comment.nodeId(node) === discussion.id
       );
 
-      if (!entry) return;
+      if (!initialEntry) return;
 
       markEditorDiscussionRead(editor, discussion);
       setOpen(false);
 
       // 等卡片关闭后再滚动定位并激活评论卡片。
       setTimeout(() => {
-        const domNode = editor.api.toDOMNode(entry[0]);
+        void (async () => {
+          const currentEntries = editor
+            .getApi(CommentPlugin)
+            .comment.nodes({ at: [] }) as NodeEntry<TCommentText>[];
+          const currentEntry = currentEntries.find(
+            ([node]) =>
+              editor.getApi(CommentPlugin).comment.nodeId(node) ===
+              discussion.id
+          );
 
-        domNode?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        editor.setOption(commentPlugin, 'activeId', discussion.id);
-        editor.setOption(commentPlugin, 'hoverId', discussion.id);
+          if (!currentEntry) return;
 
-        setTimeout(() => {
-          editor.setOption(commentPlugin, 'hoverId', null);
-        }, 1500);
+          const topLevelIndex = currentEntry[1][0];
+          const topLevelNode = Number.isInteger(topLevelIndex)
+            ? NodeApi.getIf(editor, [topLevelIndex!])
+            : null;
+          const blockId =
+            ElementApi.isElement(topLevelNode) &&
+            typeof topLevelNode.id === 'string'
+              ? topLevelNode.id
+              : '';
+
+          await chunkWindow.revealBlock(blockId, [topLevelIndex!]);
+
+          let domNode: HTMLElement | null = null;
+
+          try {
+            domNode = editor.api.toDOMNode(currentEntry[0]) ?? null;
+          } catch {
+            domNode = null;
+          }
+
+          domNode?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          editor.setOption(commentPlugin, 'activeId', discussion.id);
+          editor.setOption(commentPlugin, 'hoverId', discussion.id);
+
+          setTimeout(() => {
+            editor.setOption(commentPlugin, 'hoverId', null);
+          }, 1500);
+        })();
       }, 150);
     },
-    [editor]
+    [chunkWindow, editor]
   );
 
   const markAllRead = React.useCallback(() => {

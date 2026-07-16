@@ -1,9 +1,16 @@
-export { BaseEditorKit } from './editor-base-kit';
+export {
+  getEditableChunkDescriptor,
+  getEditableChunkRange,
+  selectionPinsEditableChunk,
+  type EditableChunkDescriptor,
+  type EditableChunkRange,
+} from './lib/editable-chunk-window-core';
+export { installSafeEditorNodeLookup } from './lib/safe-editor-node-lookup';
 export {
   EDITOR_VERSION_DIFF_INPUT_BUDGET,
   EDITOR_VERSION_DIFF_RESULT_BUDGET,
   cloneEditorVersionValue,
-  computeEditorVersionDiff,
+  computeEditorVersionDiffCore,
   estimateEditorVersionValue,
   getEditorVersionDiffSegments,
   hasEditorVersionDiff,
@@ -11,16 +18,7 @@ export {
   isEditorVersionValueWithinBudget,
   type EditorVersionDiffSegment,
   type EditorVersionValueBudget,
-} from './lib/version-history';
-export { VersionDiffKit, VersionDiffPlugin } from './kits/version-diff-kit';
-export {
-  VersionDiff,
-  VersionDiffPreview,
-  type VersionDiffPreviewProps,
-  type VersionDiffProps,
-} from './ui/version-diff';
-export { VersionDiffLegend, type VersionDiffLegendProps } from './ui/version-diff-legend';
-export { VersionPreview, type VersionPreviewProps } from './ui/version-preview';
+} from './lib/version-history-core';
 export {
   canCurrentUserDeleteDiscussion,
   dispatchEditorDiscussionAction,
@@ -32,7 +30,11 @@ export {
   type TDiscussionUser,
 } from './kits/discussion-kit';
 export { EditorKit, useEditor, type SharebrainEditor } from './editor-kit';
-export { DocxExportKit } from './kits/docx-export-kit';
+export {
+  getEditorWordClipboardPayload,
+  parseEditorWordClipboard,
+  type EditorWordClipboardPayload,
+} from './lib/exports';
 export {
   EditorMentionProvider,
   type EditorMentionItem,
@@ -57,10 +59,23 @@ export {
 export { CommentsPopoverButton } from './ui/comments-popover';
 export { Editor, EditorContainer, EditorView } from './ui/editor';
 export {
+  EditableChunkFallback,
+  EditableChunkWindow,
+  EditableChunkWindowProvider,
+  useEditableChunkMountRevision,
+  useEditableChunkWindow,
+} from './ui/editable-chunk-window';
+export { EditorWindowFind } from './ui/editor-window-find';
+export {
   EditorFixedToolbarPanel,
   type EditorFixedToolbarPanelProps,
 } from './ui/editor-fixed-toolbar-panel';
 export { EditorMoreMenu } from './ui/editor-more-menu';
+export {
+  getSuggestionModeToggleState,
+  SuggestionModeToggle,
+  type SuggestionModeToggleState,
+} from './ui/suggestion-mode-toggle';
 export {
   EditorTocSidebar,
   type EditorTocSidebarProps,
@@ -69,7 +84,6 @@ export {
   EmojiPickerButton,
   EmojiToolbarButton,
 } from './ui/emoji-toolbar-button';
-export { EditorStatic } from './ui/editor-static';
 export {
   RemoteCursorOverlay,
   type CursorData,

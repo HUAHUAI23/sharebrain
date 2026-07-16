@@ -1,5 +1,7 @@
 // 组合 Worker Diff、变更上下文和只读预览，并覆盖加载、错误和超限状态。
-import { VersionDiffLegend, VersionDiffPreview, VersionPreview } from "@sharebrain/editor";
+import { VersionDiffPreview } from "@sharebrain/editor/ui/version-diff";
+import { VersionDiffLegend } from "@sharebrain/editor/ui/version-diff-legend";
+import { VersionPreview } from "@sharebrain/editor/ui/version-preview";
 import { m } from "@sharebrain/i18n";
 import { Button } from "@sharebrain/ui/components/button";
 import { NotionEmpty } from "@sharebrain/ui/components/notion";

@@ -569,6 +569,10 @@ export class BlockDiscussionIndexStore {
 
   getPresent = () => !this.empty;
 
+  hasBlockItemsAtTopLevel(index: number) {
+    return this.blockItems.has(String(index));
+  }
+
   subscribeBlock = (blockKey: string, listener: () => void) => {
     const listeners = this.blockListeners.get(blockKey) ?? new Set();
 
@@ -596,6 +600,47 @@ export class BlockDiscussionIndexStore {
       this.presenceListeners.delete(listener);
     };
   };
+
+  transformBlockPaths(operations: EditorOperation[], discussions: TDiscussion[]) {
+    const previousBlockItems = this.blockItems;
+    const nextBlockItems = new Map<string, BlockDiscussionItems>();
+
+    for (const [blockKey, items] of previousBlockItems) {
+      const topLevelIndex = Number(blockKey);
+      if (!Number.isInteger(topLevelIndex)) return false;
+
+      let path: Path | null = [topLevelIndex];
+
+      for (const operation of operations) {
+        if (!path) break;
+        path = PathApi.transform(path, operation, { affinity: 'forward' });
+      }
+
+      if (!path || path.length === 0) return false;
+
+      const nextKey = getBlockKey(path.slice(0, 1));
+      if (nextBlockItems.has(nextKey)) return false;
+      nextBlockItems.set(nextKey, items);
+    }
+
+    const changedKeys = new Set([
+      ...previousBlockItems.keys(),
+      ...nextBlockItems.keys(),
+    ]);
+
+    this.blockItems = nextBlockItems;
+    this.lastDiscussions = discussions;
+
+    changedKeys.forEach((blockKey) => {
+      if (previousBlockItems.get(blockKey) === nextBlockItems.get(blockKey)) {
+        return;
+      }
+
+      this.blockListeners.get(blockKey)?.forEach((listener) => listener());
+    });
+
+    return true;
+  }
 
   update(index: BlockDiscussionIndex, discussions: TDiscussion[]) {
     const wasPresent = this.getPresent();
@@ -764,6 +809,42 @@ export const refreshBlockDiscussionIndex = (
 ) => {
   const store = getBlockDiscussionIndexStore(editor);
   const discussionsChanged = store.lastDiscussions !== discussions;
+
+  if (
+    store.initialized &&
+    !discussionsChanged &&
+    operations.length > 0 &&
+    operations.every(
+      (operation) => !operationHasDiscussionData(editor, operation)
+    )
+  ) {
+    const pathOperations = operations.filter(
+      PathApi.operationCanTransformPath
+    );
+
+    if (pathOperations.length === 0) return;
+
+    const canTransformPaths = pathOperations.every((operation) => {
+      const topLevelIndex = operation.path[0];
+
+      if (!Number.isInteger(topLevelIndex)) return false;
+
+      if (operation.type === 'insert_node') return true;
+      if (operation.type === 'move_node') return false;
+      if (operation.type === 'merge_node') {
+        return (
+          !store.hasBlockItemsAtTopLevel(topLevelIndex!) &&
+          !store.hasBlockItemsAtTopLevel(Math.max(0, topLevelIndex! - 1))
+        );
+      }
+
+      return !store.hasBlockItemsAtTopLevel(topLevelIndex!);
+    });
+
+    if (canTransformPaths && store.transformBlockPaths(pathOperations, discussions)) {
+      return;
+    }
+  }
 
   if (
     canReuseEmptyDiscussionIndex({

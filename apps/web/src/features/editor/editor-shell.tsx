@@ -2,6 +2,9 @@
 import { YjsPlugin } from "@platejs/yjs/react";
 import {
   CommentsPopoverButton,
+  EditableChunkFallback,
+  EditableChunkWindow,
+  EditableChunkWindowProvider,
   cloneEditorVersionValue,
   discussionPlugin,
   Editor,
@@ -10,7 +13,14 @@ import {
   EditorMoreMenu,
   EditorTocSidebar,
   EditorUploadProvider,
+  EditorWindowFind,
+  getEditableChunkDescriptor,
+  getEditableChunkRange,
+  getEditorWordClipboardPayload,
+  installSafeEditorNodeLookup,
+  parseEditorWordClipboard,
   RemoteCursorOverlay,
+  SuggestionModeToggle,
   mergeDiscussionReadStates,
   setEditorDiscussionReadStates,
   type DiscussionReadItem,
@@ -37,9 +47,10 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
+  type ClipboardEvent,
   type KeyboardEvent,
 } from "react";
+import * as Y from "yjs";
 
 import { apiRequest, queryKeys } from "../../lib/api-client";
 import { runtimeEnv } from "../../lib/runtime-env";
@@ -59,6 +70,7 @@ import {
   encodeDocumentStateVector,
   getEditorCollabProvider,
 } from "./editor-collab-provider";
+import { deferYjsEditorConnectionUntilInitialSync } from "./editor-yjs-bootstrap";
 import type {
   DocumentMetadataResponse,
   MeResponse,
@@ -67,16 +79,28 @@ import type {
 
 const emptyPlateValue: Value = [{ type: "p", children: [{ text: "" }] }];
 const emptyMembers: TenantMember[] = [];
-const documentEditorChunkSize = 50;
-const documentEditorChunkStyle: CSSProperties = { contain: "layout style" };
+const documentEditorChunkSize = 15;
+const documentEditorOverscanPx = 700;
 
 function DocumentEditorChunk({ attributes, children, lowest }: PlateChunkProps) {
   if (!lowest) return children;
 
+  const descriptor = getEditableChunkDescriptor(children);
+
+  if (descriptor) {
+    return (
+      <EditableChunkWindow attributes={attributes} descriptor={descriptor}>
+        {children}
+      </EditableChunkWindow>
+    );
+  }
+
+  const range = getEditableChunkRange(children);
+
   return (
-    <div {...attributes} style={documentEditorChunkStyle}>
+    <EditableChunkFallback attributes={attributes} range={range}>
       {children}
-    </div>
+    </EditableChunkFallback>
   );
 }
 
@@ -229,6 +253,7 @@ function DocumentEditor({
 }: DocumentEditorProps) {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(normalizeDocumentTitleInput(initialDocument.title));
+  const [editorReady, setEditorReady] = useState(false);
   const [historySnapshot, setHistorySnapshot] = useState<{
     selectedKey: string;
   } | null>(null);
@@ -241,6 +266,12 @@ function DocumentEditor({
   });
   const [activityRevision, setActivityRevision] = useState<string | null>(null);
   const savedTitleRef = useRef(initialDocument.title);
+  const collabBootstrapRef = useRef<ReturnType<
+    typeof deferYjsEditorConnectionUntilInitialSync
+  > | null>(null);
+  const cachedCollabContentRef = useRef(false);
+  const localCollabPersistenceReadyRef = useRef(false);
+  const remoteCollabAuthenticatedRef = useRef(false);
   const uploadEditorFile = useMemo(() => createEditorUploadHandler({ documentId }), [documentId]);
   const participantDirectory = useMemo(
     () => createEditorParticipantDirectory(user, members),
@@ -267,9 +298,29 @@ function DocumentEditor({
           },
           providers: [
             {
+              type: "indexeddb",
+              options: {
+                docName: `sharebrain:${user.id}:document:${documentId}`,
+              },
+            },
+            {
               type: "hocuspocus",
               options: {
+                // provider 构造器不抢先连线，统一由 YjsPlugin.init 管理一次连接，
+                // 避免 StrictMode/HMR 清理与内部自动连接竞争后进入重试退避。
+                autoConnect: false,
                 name: `document:${documentId}`,
+                onAuthenticated: () => {
+                  performance.mark("sharebrain:editor-yjs:authenticated:hocuspocus");
+                  remoteCollabAuthenticatedRef.current = true;
+
+                  if (
+                    localCollabPersistenceReadyRef.current &&
+                    cachedCollabContentRef.current
+                  ) {
+                    collabBootstrapRef.current?.connectFromCurrentState("cache");
+                  }
+                },
                 url: runtimeEnv.WEB_PUBLIC_COLLAB_WS_URL,
                 token: user.id,
               },
@@ -283,6 +334,7 @@ function DocumentEditor({
     ],
     skipInitialization: true,
   });
+  installSafeEditorNodeLookup(editor);
 
   // PlateContent 在 children 为空时不挂载（也就不会订阅 store 更新），
   // 先塞一个占位空段落让编辑器立即渲染；yjs.init 连接后由 ydoc 内容覆盖。
@@ -372,28 +424,116 @@ function DocumentEditor({
     // 让被 StrictMode 立刻清理的首次 effect 不真正发起 init。
     let active = true;
     let started = false;
+    let cleanupBootstrap: (() => void) | null = null;
+    cachedCollabContentRef.current = false;
+    localCollabPersistenceReadyRef.current = false;
+    remoteCollabAuthenticatedRef.current = false;
     const timer = setTimeout(() => {
       if (!active) return;
 
       started = true;
+      let remoteConnectStarted = false;
+      let remoteConnectTimer: number | null = null;
+      const connectRemote = () => {
+        if (!active || remoteConnectStarted) return;
+        remoteConnectStarted = true;
+
+        if (remoteConnectTimer !== null) {
+          window.clearTimeout(remoteConnectTimer);
+          remoteConnectTimer = null;
+        }
+
+        yjs.connect("hocuspocus");
+      };
+      const bootstrap = deferYjsEditorConnectionUntilInitialSync(editor, {
+        onConnected: () => {
+          if (!active) return;
+
+          // 首次加载不建立末尾选区：页面没有自动聚焦，而大文档末尾选区会
+          // 触发 selection overlay 跨窗口测量；用户点击正文后再建立真实选区。
+          editor.tf.init({
+            shouldNormalizeEditor: false,
+            value: null,
+          });
+          editor.api.onChange();
+
+          setEditorReady(true);
+        },
+        onError: (error) => {
+          console.warn("collab editor hydration failed", error);
+        },
+        shouldConnectOnSync: ({ type }) => {
+          if (type !== "indexeddb") return true;
+
+          localCollabPersistenceReadyRef.current = true;
+          const yjsOptions = editor.getOptions(YjsPlugin);
+          const sharedRoot =
+            yjsOptions.sharedType ?? yjsOptions.ydoc?.get("content", Y.XmlText);
+          const localProvider = yjsOptions._providers.find(
+            (provider) => provider.type === "indexeddb",
+          );
+          const providerRoot = localProvider?.document.get("content", Y.XmlText);
+          performance.mark(
+            `sharebrain:editor-yjs:cache-root:${sharedRoot?.length ?? -1}:${providerRoot?.length ?? -1}`,
+          );
+          cachedCollabContentRef.current = Boolean(
+            sharedRoot && sharedRoot.length > 0,
+          );
+          connectRemote();
+
+          return (
+            remoteCollabAuthenticatedRef.current &&
+            cachedCollabContentRef.current
+          );
+        },
+      });
+      collabBootstrapRef.current = bootstrap;
+
       void Promise.resolve()
         .then(() =>
           yjs.init({
+            autoConnect: false,
             id: `document:${documentId}`,
-            autoSelect: "end",
             // Collab 在无 CRDT snapshot 时从最新正文版本引导。客户端绝不能在
             // provider 同步超时后回填 HTTP 正文，否则远端快照会与整篇正文合并。
             value: null,
           }),
         )
+        .then(() => {
+          bootstrap.finishInitialization();
+
+          if (!active) return;
+
+          yjs.connect("indexeddb");
+          if (!remoteConnectStarted) {
+            remoteConnectTimer = window.setTimeout(connectRemote, 1_000);
+          }
+
+          if (bootstrap.isConnected()) {
+            setEditorReady(true);
+          }
+        })
         .catch((error: unknown) => {
+          bootstrap.finishInitialization();
           console.warn("collab init failed", error);
         });
+
+      cleanupBootstrap = () => {
+        if (remoteConnectTimer !== null) {
+          window.clearTimeout(remoteConnectTimer);
+          remoteConnectTimer = null;
+        }
+        if (collabBootstrapRef.current === bootstrap) {
+          collabBootstrapRef.current = null;
+        }
+        bootstrap.dispose();
+      };
     }, 0);
 
     return () => {
       active = false;
       clearTimeout(timer);
+      cleanupBootstrap?.();
 
       if (!started) return;
 
@@ -435,6 +575,7 @@ function DocumentEditor({
 
   const handleTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    if (!editorReady) return;
 
     event.preventDefault();
 
@@ -477,6 +618,26 @@ function DocumentEditor({
     editor.tf.focus();
   };
 
+  const handleEditorPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    const payload = getEditorWordClipboardPayload(event.clipboardData);
+
+    if (!payload) return;
+
+    event.preventDefault();
+    const selection = editor.selection
+      ? structuredClone(editor.selection)
+      : null;
+
+    void parseEditorWordClipboard(editor, payload)
+      .then((nodes) => {
+        if (selection) editor.tf.select(selection);
+        editor.tf.insertFragment(nodes);
+      })
+      .catch((error: unknown) => {
+        console.warn("Word clipboard import failed", error);
+      });
+  };
+
   const getLiveVersionValue = useCallback(() => {
     const snapshot = cloneEditorVersionValue(editor.children as Value);
     return toPlateValue(projectDocumentVersionValue(snapshot));
@@ -512,6 +673,16 @@ function DocumentEditor({
         }}
       >
         <Plate editor={editor}>
+          <EditableChunkWindowProvider
+            documentKey={documentId}
+            enabled={runtimeEnv.WEB_PUBLIC_EDITOR_WINDOWING_ENABLED}
+            longTaskThresholdMs={runtimeEnv.WEB_PUBLIC_EDITOR_WINDOWING_LONG_TASK_MS}
+            maxFallbackRatio={runtimeEnv.WEB_PUBLIC_EDITOR_WINDOWING_MAX_FALLBACK_RATIO}
+            maxRevealFailures={runtimeEnv.WEB_PUBLIC_EDITOR_WINDOWING_MAX_REVEAL_FAILURES}
+            minimumBlockCount={runtimeEnv.WEB_PUBLIC_EDITOR_WINDOWING_MIN_BLOCKS}
+            overscanPx={documentEditorOverscanPx}
+            scrollRoot="viewport"
+          >
           <NotionToolbar className="fixed inset-x-0 top-0 z-30 grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-0 bg-background/95 px-5 py-2 text-sm shadow-none backdrop-blur-md max-sm:min-h-12 max-sm:px-3 max-sm:py-1.5">
             <div className="flex min-w-0 items-center gap-1 justify-self-start">
               <Button
@@ -543,6 +714,7 @@ function DocumentEditor({
                 />
               ) : null}
               <CommentsPopoverButton />
+              <SuggestionModeToggle />
               <EditorMoreMenu
                 fileName={title || "document"}
                 {...(capabilities?.versionHistoryRead
@@ -563,17 +735,21 @@ function DocumentEditor({
               aria-label={m.module_document_title_aria()}
               className="title-input rounded-none hover:bg-transparent focus-visible:border-transparent focus-visible:bg-transparent focus-visible:ring-0"
             />
-            <EditorContainer className="min-h-[70vh]">
+            <EditorContainer variant="document" className="min-h-[70vh] min-w-0">
               <Editor
                 variant="none"
-                className="min-h-[56vh] w-full px-[var(--editor-content-gutter)] pt-0 pb-36 text-base leading-7 text-foreground"
+                readOnly={!editorReady}
+                className="min-h-[56vh] min-w-0 w-full px-[var(--editor-content-gutter)] pt-0 pb-36 text-base leading-7 text-foreground"
                 placeholder={m.document_editor_placeholder()}
                 renderChunk={DocumentEditorChunk}
                 onKeyDown={handleEditorKeyDown}
+                onPaste={handleEditorPaste}
               />
             </EditorContainer>
           </article>
+          <EditorWindowFind />
           <EditorTocSidebar />
+          </EditableChunkWindowProvider>
           {historySnapshot ? (
             <DocumentVersionHistory
               documentId={documentId}

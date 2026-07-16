@@ -34,6 +34,11 @@ type TrackerState = {
   inFlight: Map<string, DocumentActivityBatch[]>;
 };
 
+type PendingTrackerInitialization = {
+  initialUpdate: Uint8Array;
+  timer: ReturnType<typeof setTimeout> | null;
+};
+
 export type DocumentActivityDrain = {
   token: string;
   batches: DocumentActivityBatch[];
@@ -48,7 +53,15 @@ function readDiscussions(document: Y.Doc) {
   return discussions === null ? null : structuredClone(discussions);
 }
 
-function cloneDocument(document: Y.Doc) {
+function cloneDocument(document: Y.Doc, initialUpdate?: Uint8Array | null) {
+  if (initialUpdate) {
+    const snapshotMirror = new Y.Doc();
+    Y.applyUpdate(snapshotMirror, initialUpdate);
+
+    if (sameState(snapshotMirror, document)) return snapshotMirror;
+    snapshotMirror.destroy();
+  }
+
   const mirror = new Y.Doc();
   Y.applyUpdate(mirror, Y.encodeStateAsUpdate(document));
   return mirror;
@@ -68,10 +81,49 @@ function isCollabContext(value: unknown): value is CollabContext {
 }
 
 export class DocumentActivityTracker {
+  private readonly pendingInitializations = new Map<
+    string,
+    PendingTrackerInitialization
+  >();
   private readonly states = new Map<string, TrackerState>();
 
-  initialize(documentName: string, document: Y.Doc) {
-    const mirror = cloneDocument(document);
+  initialize(
+    documentName: string,
+    document: Y.Doc,
+    initialUpdate?: Uint8Array | null,
+  ) {
+    this.cancelPendingInitialization(documentName);
+    const mirror = cloneDocument(document, initialUpdate);
+    this.setInitialState(documentName, mirror);
+  }
+
+  initializeDeferred(documentName: string, initialUpdate: Uint8Array) {
+    this.cancelPendingInitialization(documentName);
+    const pending: PendingTrackerInitialization = {
+      initialUpdate: initialUpdate.slice(),
+      timer: null,
+    };
+
+    this.pendingInitializations.set(documentName, pending);
+  }
+
+  startDeferredInitialization(documentName: string) {
+    const pending = this.pendingInitializations.get(documentName);
+    if (!pending || pending.timer !== null) return;
+
+    pending.timer = setTimeout(() => {
+      if (this.pendingInitializations.get(documentName) !== pending) return;
+
+      this.pendingInitializations.delete(documentName);
+      this.setInitialState(
+        documentName,
+        this.cloneInitialUpdate(pending.initialUpdate),
+      );
+    }, 0);
+  }
+
+  private setInitialState(documentName: string, mirror: Y.Doc) {
+    this.states.get(documentName)?.mirror.destroy();
     this.states.set(documentName, {
       mirror,
       currentValue: readValue(mirror),
@@ -89,6 +141,7 @@ export class DocumentActivityTracker {
     update: Uint8Array;
     now?: Date;
   }) {
+    this.flushPendingInitialization(input.documentName);
     const state = this.states.get(input.documentName);
     if (!state) {
       this.initialize(input.documentName, input.document);
@@ -122,7 +175,11 @@ export class DocumentActivityTracker {
     state.active.occurredAt = now;
   }
 
-  beginDrain(documentName: string, authoritativeDocument: Y.Doc): DocumentActivityDrain | null {
+  beginDrain(
+    documentName: string,
+    authoritativeDocument: Y.Doc,
+  ): DocumentActivityDrain | null {
+    this.flushPendingInitialization(documentName);
     const state = this.states.get(documentName);
     if (!state) return null;
     this.finishActive(state);
@@ -155,9 +212,36 @@ export class DocumentActivityTracker {
   }
 
   remove(documentName: string) {
+    this.cancelPendingInitialization(documentName);
     const state = this.states.get(documentName);
     state?.mirror.destroy();
     this.states.delete(documentName);
+  }
+
+  private cancelPendingInitialization(documentName: string) {
+    const pending = this.pendingInitializations.get(documentName);
+    if (!pending) return;
+
+    if (pending.timer !== null) clearTimeout(pending.timer);
+    this.pendingInitializations.delete(documentName);
+  }
+
+  private cloneInitialUpdate(initialUpdate: Uint8Array) {
+    const mirror = new Y.Doc();
+    Y.applyUpdate(mirror, initialUpdate);
+    return mirror;
+  }
+
+  private flushPendingInitialization(documentName: string) {
+    const pending = this.pendingInitializations.get(documentName);
+    if (!pending) return;
+
+    if (pending.timer !== null) clearTimeout(pending.timer);
+    this.pendingInitializations.delete(documentName);
+    this.setInitialState(
+      documentName,
+      this.cloneInitialUpdate(pending.initialUpdate),
+    );
   }
 
   private finishActive(state: TrackerState) {

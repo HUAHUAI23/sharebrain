@@ -1,13 +1,8 @@
-import { exportToDocx, importDocx } from '@platejs/docx-io';
+// 编辑器导入导出入口；预览、DOCX 和静态 HTML 运行时仅在用户执行对应命令时加载。
 import { MarkdownPlugin } from '@platejs/markdown';
-import type { Descendant, SlateEditor, SlatePlugin, Value } from 'platejs';
-import { createSlateEditor, KEYS } from 'platejs';
 import type { PlateEditor } from 'platejs/react';
-import { serializeHtml } from 'platejs/static';
 
-import { BaseEditorKit } from '../editor-base-kit';
-import { DocxExportKit } from '../kits/docx-export-kit';
-import { EditorStatic } from '../ui/editor-static';
+import { blobToDataUrl } from './export-editor-media';
 
 export async function downloadFile(url: string, filename: string) {
   const response = await fetch(url);
@@ -25,99 +20,20 @@ export async function downloadFile(url: string, filename: string) {
   window.URL.revokeObjectURL(blobUrl);
 }
 
-function blobToDataUrl(blob: Blob) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
-
-/**
- * 把文档里的图片 URL 内联成 data URL。文档内嵌媒体存的是需要登录态的
- * API 地址（如 /api/media/:id/raw），导出的 docx/html 离开浏览器后无法
- * 再访问这些地址，必须先取字节内嵌。取不到的图片保留原地址。
- */
-async function inlineImageUrls(value: Descendant[]): Promise<Value> {
-  const inlineNode = async (node: Descendant): Promise<Descendant> => {
-    if (!('type' in node)) return node;
-
-    let next = node;
-
-    if (
-      node.type === KEYS.img &&
-      typeof node.url === 'string' &&
-      !node.url.startsWith('data:')
-    ) {
-      try {
-        const response = await fetch(node.url, { credentials: 'include' });
-
-        if (response.ok) {
-          next = { ...node, url: await blobToDataUrl(await response.blob()) };
-        }
-      } catch {
-        // 离线或跨域取不到时保留原地址。
-      }
-    }
-
-    if ('children' in next && Array.isArray(next.children)) {
-      return {
-        ...next,
-        children: await Promise.all(next.children.map(inlineNode)),
-      } as Descendant;
-    }
-
-    return next;
-  };
-
-  return Promise.all(value.map(inlineNode)) as Promise<Value>;
-}
-
 export function exportEditorToMarkdown(editor: PlateEditor) {
   return editor.getApi(MarkdownPlugin).markdown.serialize();
 }
 
 export async function exportEditorToHtml(editor: PlateEditor) {
-  const editorStatic = createSlateEditor({
-    plugins: BaseEditorKit,
-    value: await inlineImageUrls(editor.children),
-  });
+  const { exportEditorToHtmlRuntime } = await import('./export-editor-html');
 
-  const editorHtml = await serializeHtml(editorStatic as SlateEditor, {
-    editorComponent: EditorStatic,
-    props: { style: { padding: '0 calc(50% - 350px)', paddingBottom: '' } },
-  });
-
-  return `<!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <meta name="color-scheme" content="light dark" />
-      </head>
-      <body>
-        ${editorHtml}
-      </body>
-    </html>`;
-}
-
-async function ensureBufferPolyfill() {
-  const globals = globalThis as { Buffer?: unknown };
-
-  if (typeof globals.Buffer === 'undefined') {
-    // @platejs/docx-io 依赖 Node 的 Buffer.from，浏览器里需要 polyfill。
-    const { Buffer } = await import('buffer');
-    globals.Buffer = Buffer;
-  }
+  return exportEditorToHtmlRuntime(editor);
 }
 
 export async function exportEditorToWordBlob(editor: PlateEditor) {
-  await ensureBufferPolyfill();
+  const { exportEditorToWordBlobRuntime } = await import('./export-editor-docx');
 
-  return exportToDocx(await inlineImageUrls(editor.children), {
-    editorPlugins: [...BaseEditorKit, ...DocxExportKit] as SlatePlugin[],
-  });
+  return exportEditorToWordBlobRuntime(editor);
 }
 
 /**
@@ -201,7 +117,37 @@ export async function exportEditorToPdfDataUri(editor: PlateEditor) {
 
 export async function importEditorDocxFile(editor: PlateEditor, file: File) {
   const arrayBuffer = await file.arrayBuffer();
+  const { importDocx } = await import('@platejs/docx-io');
   const result = await importDocx(editor, arrayBuffer);
 
   editor.tf.insertNodes(result.nodes);
+}
+
+export type EditorWordClipboardPayload = {
+  html: string;
+  rtf: string;
+};
+
+export function getEditorWordClipboardPayload(
+  dataTransfer: Pick<DataTransfer, 'getData'>
+): EditorWordClipboardPayload | null {
+  const html = dataTransfer.getData('text/html');
+  const rtf = dataTransfer.getData('text/rtf');
+
+  if (!html || (!rtf && !/(?:class=["']?Mso|mso-)/i.test(html))) {
+    return null;
+  }
+
+  return { html, rtf };
+}
+
+export async function parseEditorWordClipboard(
+  editor: PlateEditor,
+  payload: EditorWordClipboardPayload
+) {
+  const { parseEditorWordClipboardRuntime } = await import(
+    './parse-editor-word-clipboard'
+  );
+
+  return parseEditorWordClipboardRuntime(editor, payload);
 }

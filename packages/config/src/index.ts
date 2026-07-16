@@ -70,6 +70,30 @@ export const serverEnvSchema = {
 export const clientEnvSchema = {
   WEB_PUBLIC_API_BASE_URL: z.string().url().optional().or(z.literal("")).default(""),
   WEB_PUBLIC_COLLAB_WS_URL: z.string().url().default("ws://localhost:3002"),
+  WEB_PUBLIC_EDITOR_WINDOWING_ENABLED: envBoolean.default(true),
+  WEB_PUBLIC_EDITOR_WINDOWING_MIN_BLOCKS: z.coerce
+    .number()
+    .int()
+    .min(100)
+    .max(100000)
+    .default(800),
+  WEB_PUBLIC_EDITOR_WINDOWING_LONG_TASK_MS: z.coerce
+    .number()
+    .int()
+    .min(50)
+    .max(10000)
+    .default(200),
+  WEB_PUBLIC_EDITOR_WINDOWING_MAX_FALLBACK_RATIO: z.coerce
+    .number()
+    .min(0)
+    .max(1)
+    .default(0.25),
+  WEB_PUBLIC_EDITOR_WINDOWING_MAX_REVEAL_FAILURES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .default(3),
 } as const;
 
 export function loadServerEnv(runtimeEnv: Record<string, string | undefined> = process.env) {

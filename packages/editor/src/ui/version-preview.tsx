@@ -8,7 +8,7 @@ import {
 import * as React from 'react';
 
 import { BaseEditorKit } from '../editor-base-kit';
-import { cloneEditorVersionValue } from '../lib/version-history';
+import { cloneEditorVersionValue } from '../lib/version-history-core';
 import { Editor } from './editor';
 
 const versionPreviewBatchSize = 50;

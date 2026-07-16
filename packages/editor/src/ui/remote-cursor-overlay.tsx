@@ -10,6 +10,30 @@ import {
 } from '@slate-yjs/react';
 import { useEditorContainerRef, usePluginOption } from 'platejs/react';
 
+import { useEditableChunkMountRevision } from './editable-chunk-window';
+
+type OverlayRect = {
+  height: number;
+  left: number;
+  top: number;
+  width?: number;
+};
+
+const isFiniteOverlayRect = (position: OverlayRect) =>
+  Number.isFinite(position.height) &&
+  Number.isFinite(position.left) &&
+  Number.isFinite(position.top) &&
+  (position.width === undefined || Number.isFinite(position.width));
+
+export const isUsableRemoteCaretPosition = (position: OverlayRect) =>
+  isFiniteOverlayRect(position) && position.height > 0 && position.height <= 256;
+
+export const isUsableRemoteSelectionRect = (position: OverlayRect) =>
+  isFiniteOverlayRect(position) &&
+  position.height > 0 &&
+  position.height <= 4_096 &&
+  (position.width ?? 0) >= 0;
+
 export function RemoteCursorOverlay() {
   const isSynced = usePluginOption(YjsPlugin, '_isSynced');
   const cursors = useRemoteCursorStates<CursorData>();
@@ -22,11 +46,16 @@ export function RemoteCursorOverlay() {
 }
 
 function RemoteCursorOverlayContent() {
+  const mountRevision = useEditableChunkMountRevision();
   const containerRef =
     useEditorContainerRef() as React.RefObject<HTMLDivElement>;
-  const [cursors] = useRemoteCursorOverlayPositions<CursorData>({
+  const [cursors, refresh] = useRemoteCursorOverlayPositions<CursorData>({
     containerRef,
   });
+
+  React.useLayoutEffect(() => {
+    refresh();
+  }, [mountRevision, refresh]);
 
   return (
     <>
@@ -53,14 +82,17 @@ function RemoteSelection({
 
   return (
     <>
-      {selectionRects.map((position, i) => (
+      {selectionRects.filter(isUsableRemoteSelectionRect).map((position, i) => (
         <div
           key={i}
+          data-editor-remote-selection="true"
           className="pointer-events-none absolute"
           style={{ ...selectionStyle, ...position }}
         />
       ))}
-      {caretPosition && <Caret data={data} caretPosition={caretPosition} />}
+      {caretPosition && isUsableRemoteCaretPosition(caretPosition) && (
+        <Caret data={data} caretPosition={caretPosition} />
+      )}
     </>
   );
 }
@@ -103,6 +135,7 @@ function Caret({
 
   return (
     <div
+      data-editor-remote-caret="true"
       className="absolute w-0.5"
       style={isHover ? caretStyleHover : caretStyle}
     >

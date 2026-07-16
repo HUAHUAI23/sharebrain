@@ -30,6 +30,8 @@ export const EDITOR_VERSION_DIFF_RESULT_BUDGET: EditorVersionValueBudget = {
   maxNodes: 100_000,
 };
 
+export const EDITOR_VERSION_DIFF_CONTEXT_BLOCKS = 5;
+
 const editorVersionInlineTypes: ReadonlySet<string> = new Set([
   KEYS.inlineEquation,
   KEYS.link,
@@ -114,7 +116,9 @@ export function hasEditorVersionDiff(value: unknown): boolean {
 
 export function getEditorVersionDiffSegments(
   value: Value,
-  { contextBlocks = 1 }: { contextBlocks?: number } = {}
+  {
+    contextBlocks = EDITOR_VERSION_DIFF_CONTEXT_BLOCKS,
+  }: { contextBlocks?: number } = {}
 ): EditorVersionDiffSegment[] {
   const context = Math.max(0, Math.floor(contextBlocks));
   const windows = value.flatMap((node, index) => {

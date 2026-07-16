@@ -3,6 +3,7 @@
 
 import { AIChatPlugin } from '@platejs/ai/react';
 import {
+  CursorOverlayPlugin,
   type CursorData,
   type CursorOverlayState,
   useCursorOverlay,
@@ -14,6 +15,16 @@ import { useEditorRef, usePluginOption } from 'platejs/react';
 import { cn } from '@sharebrain/ui/lib/utils';
 
 export function CursorOverlay() {
+  const cursorStates = usePluginOption(CursorOverlayPlugin, 'cursors');
+
+  if (!cursorStates || Object.keys(cursorStates).length === 0) {
+    return null;
+  }
+
+  return <CursorOverlayContent />;
+}
+
+function CursorOverlayContent() {
   const { cursors } = useCursorOverlay();
 
   return (

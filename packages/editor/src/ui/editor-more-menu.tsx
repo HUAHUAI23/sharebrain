@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import { m } from '@sharebrain/i18n';
 import { useEditorReadOnly, useEditorRef } from 'platejs/react';
-import { getEditorDOMFromHtmlString } from 'platejs/static';
 import { useFilePicker } from 'use-file-picker';
 
 import { Button } from '@sharebrain/ui/components/button';
@@ -74,6 +73,7 @@ export function EditorMoreMenu({
 
       if (!file) return;
 
+      const { getEditorDOMFromHtmlString } = await import('platejs/static');
       const element = getEditorDOMFromHtmlString(await file.text());
       const nodes = editor.api.html.deserialize({ element });
 

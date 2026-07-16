@@ -225,3 +225,63 @@ describe('canReuseEmptyDiscussionIndex', () => {
     ).toBe(false);
   });
 });
+
+describe('BlockDiscussionIndexStore path transforms', () => {
+  test('moves unaffected discussion blocks after an unmarked paragraph split', () => {
+    const store = new BlockDiscussionIndexStore();
+    const discussion = {
+      id: 'comment-1',
+      comments: [],
+      createdAt: new Date(0),
+      isResolved: false,
+      updatedAt: new Date(0),
+      userId: 'user-1',
+    };
+
+    store.update(
+      {
+        commentIds: new Set(['comment-1']),
+        discussionsByBlock: new Map([['2', [discussion]]]),
+        suggestionsByBlock: new Map(),
+      },
+      [discussion]
+    );
+
+    expect(
+      store.transformBlockPaths(
+        [
+          {
+            type: 'split_node',
+            path: [0],
+            position: 0,
+            properties: { type: 'p' },
+          },
+        ],
+        [discussion]
+      )
+    ).toBe(true);
+    expect(store.getBlockItems('2').resolvedDiscussions).toHaveLength(0);
+    expect(store.getBlockItems('3').resolvedDiscussions).toEqual([discussion]);
+    expect(store.getCommentIds()).toEqual(['comment-1']);
+  });
+
+  test('rejects path transforms that remove an indexed block', () => {
+    const store = new BlockDiscussionIndexStore();
+
+    store.update(
+      {
+        commentIds: new Set([discussion.id]),
+        discussionsByBlock: new Map([['1', [discussion]]]),
+        suggestionsByBlock: new Map(),
+      },
+      [discussion]
+    );
+
+    expect(
+      store.transformBlockPaths(
+        [{ type: 'remove_node', path: [1], node: { type: 'p', children: [{ text: '' }] } }],
+        []
+      )
+    ).toBe(false);
+  });
+});

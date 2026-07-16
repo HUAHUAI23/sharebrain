@@ -79,7 +79,7 @@ describe('editor version history primitives', () => {
 
     expect(hasEditorVersionDiff(value[1])).toBe(true);
     expect(hasEditorVersionDiff(value[2])).toBe(false);
-    expect(getEditorVersionDiffSegments(value)).toEqual([
+    expect(getEditorVersionDiffSegments(value, { contextBlocks: 1 })).toEqual([
       {
         startIndex: 0,
         endIndex: 3,
@@ -121,5 +121,30 @@ describe('editor version history primitives', () => {
       },
     ]);
     expect(getEditorVersionDiffSegments(previous)).toEqual([]);
+  });
+
+  test('keeps five surrounding blocks by default', () => {
+    const value = Array.from({ length: 20 }, (_, index) => ({
+      type: 'p',
+      children: [
+        index === 10
+          ? {
+              text: 'Changed',
+              diff: true,
+              diffOperation: { type: 'insert' },
+            }
+          : { text: `Stable ${index}` },
+      ],
+    })) as Value;
+
+    expect(getEditorVersionDiffSegments(value)).toEqual([
+      {
+        startIndex: 5,
+        endIndex: 16,
+        omittedBefore: 5,
+        omittedAfter: 4,
+        value: value.slice(5, 16),
+      },
+    ]);
   });
 });

@@ -109,4 +109,104 @@ describe("document activity tracker", () => {
     );
     expect(yTextToSlateElement(document.get("content", Y.XmlText)).children).toHaveLength(1);
   });
+
+  test("reuses an exact initial update and falls back when it is stale", () => {
+    const tracker = new DocumentActivityTracker();
+    const document = new Y.Doc();
+    const initialUpdate = replaceValue(document, [
+      { id: "a", type: "p", children: [{ text: "initial" }] },
+    ]);
+    replaceValue(document, [
+      { id: "a", type: "p", children: [{ text: "current" }] },
+    ]);
+    tracker.initialize("document:test", document, initialUpdate);
+
+    const update = replaceValue(document, [
+      { id: "a", type: "p", children: [{ text: "next" }] },
+    ]);
+    tracker.capture({
+      document,
+      documentName: "document:test",
+      context: context("00000000-0000-4000-9000-000000000003"),
+      update,
+    });
+
+    const drain = tracker.beginDrain("document:test", document);
+    expect(valueText(drain?.batches[0]?.beforeValue ?? [])).toContain("current");
+    expect(valueText(drain?.batches[0]?.afterValue ?? [])).toContain("next");
+  });
+
+  test("flushes a prepared deferred initialization before the first captured update", () => {
+    const tracker = new DocumentActivityTracker();
+    const document = new Y.Doc();
+    const initialUpdate = replaceValue(document, [
+      { id: "a", type: "p", children: [{ text: "initial" }] },
+    ]);
+    tracker.initializeDeferred("document:test", initialUpdate);
+
+    const update = replaceValue(document, [
+      { id: "a", type: "p", children: [{ text: "first edit" }] },
+    ]);
+    tracker.capture({
+      document,
+      documentName: "document:test",
+      context: context("00000000-0000-4000-9000-000000000003"),
+      update,
+    });
+
+    const drain = tracker.beginDrain("document:test", document);
+    expect(valueText(drain?.batches[0]?.beforeValue ?? [])).toContain("initial");
+    expect(valueText(drain?.batches[0]?.afterValue ?? [])).toContain("first edit");
+  });
+
+  test("finishes deferred initialization before an early store drain", () => {
+    const tracker = new DocumentActivityTracker();
+    const document = new Y.Doc();
+    const initialUpdate = replaceValue(document, [
+      { id: "a", type: "p", children: [{ text: "initial" }] },
+    ]);
+    tracker.initializeDeferred("document:test", initialUpdate);
+
+    expect(tracker.beginDrain("document:test", document)).toBeNull();
+
+    const update = replaceValue(document, [
+      { id: "a", type: "p", children: [{ text: "after drain" }] },
+    ]);
+    tracker.capture({
+      document,
+      documentName: "document:test",
+      context: context("00000000-0000-4000-9000-000000000003"),
+      update,
+    });
+    expect(
+      valueText(
+        tracker.beginDrain("document:test", document)?.batches[0]?.beforeValue ?? [],
+      ),
+    ).toContain("initial");
+  });
+
+  test("starts prepared initialization after the sync response boundary", async () => {
+    const tracker = new DocumentActivityTracker();
+    const document = new Y.Doc();
+    const initialUpdate = replaceValue(document, [
+      { id: "a", type: "p", children: [{ text: "initial" }] },
+    ]);
+    tracker.initializeDeferred("document:test", initialUpdate);
+    tracker.startDeferredInitialization("document:test");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const update = replaceValue(document, [
+      { id: "a", type: "p", children: [{ text: "after sync" }] },
+    ]);
+    tracker.capture({
+      document,
+      documentName: "document:test",
+      context: context("00000000-0000-4000-9000-000000000003"),
+      update,
+    });
+
+    const batch = tracker.beginDrain("document:test", document)?.batches[0];
+    expect(valueText(batch?.beforeValue ?? [])).toContain("initial");
+    expect(valueText(batch?.afterValue ?? [])).toContain("after sync");
+  });
 });

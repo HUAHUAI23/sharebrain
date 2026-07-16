@@ -67,8 +67,8 @@ describe("document version diff worker", () => {
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
     expect(result.segments).toHaveLength(1);
-    expect(result.segments[0]?.startIndex).toBe(59);
-    expect(result.segments[0]?.endIndex).toBe(62);
+    expect(result.segments[0]?.startIndex).toBe(55);
+    expect(result.segments[0]?.endIndex).toBe(66);
   });
 
   test("reports no segments when the versions are equivalent", () => {
