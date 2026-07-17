@@ -18,6 +18,10 @@ packages/
   typescript-config/ 共享 TS 配置
 messages/    Paraglide 中文/英文消息源
 project.inlang/ Paraglide/inlang 项目配置
+.github/workflows/ GitHub Actions 构建与发布门禁
+deploy/     容器运行时配置（当前为非 root Nginx SPA 配置）
+Dockerfile  web/api/collab/worker 多目标生产镜像
+.dockerignore 容器构建上下文边界
 docs/
   standards/ 开发、代码、UI、AI 规范
 helloagents/
@@ -25,6 +29,12 @@ helloagents/
   plan/      待执行方案包
   history/   已执行方案归档
 ```
+
+容器规则:
+- 根 Dockerfile 是四个服务镜像的唯一构建入口，target 固定为 `web`、`api`、`collab`、`worker`；不得复制服务级 Dockerfile 形成漂移。
+- build context 必须排除 `.git`、`.env*`、`node_modules`、构建产物、本地数据和内部过程文档。
+- Web 使用 Nginx Unprivileged；API/Worker 使用 Bun；Collab 使用 Node 24。所有运行阶段必须显式非 root。
+- GitHub workflow 只向 GHCR 发布，镜像名称为 `sharebrain-<service>`；Docker Hub 不属于当前发布边界。
 
 ## apps/web
 

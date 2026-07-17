@@ -42,6 +42,15 @@ bun run db:seed
 Vite 使用 `strictPort`，端口被占用时直接失败。不要依赖端口自动漂移。
 Web 默认使用同源 `/api` 请求后端，开发期由 Vite proxy 转发到 `http://localhost:3001`；只有跨域部署或调试时才设置 `WEB_PUBLIC_API_BASE_URL` 覆盖。
 
+## 容器构建与 GHCR
+
+- 根 `Dockerfile` 使用 `web/api/collab/worker` 多目标构建；本地验证示例为 `docker build --target api -t sharebrain-api:local .`。
+- Web target 支持公开 build arguments `WEB_PUBLIC_API_BASE_URL` 与 `WEB_PUBLIC_COLLAB_WS_URL`；服务端数据库、S3、认证和 AI 密钥只能在容器运行时注入，不得写入 build argument、镜像层或 GitHub repository variables。
+- `.github/workflows/container-images.yml` 在 Pull Request 中只构建不推送；main、`v*.*.*` 标签和手动运行发布到 GHCR。
+- 所有第三方 Actions 固定完整 commit SHA，基础镜像固定 tag + digest；升级时同时更新版本注释、重新运行 Actionlint/Hadolint，并验证 amd64/arm64。
+- GHCR 镜像必须包含 OCI metadata、SBOM、BuildKit provenance 和 GitHub artifact attestation；当前禁止向 Docker Hub 发布。
+- 本机无 Docker daemon 时，必须至少验证 Bun/Node bundle、按服务 production 依赖、workflow/Dockerfile 静态检查，并通过 PR 构建完成最终容器门禁。
+
 ## 依赖策略
 
 - 新依赖默认使用 npm latest，并写入根 `workspaces.catalog`。

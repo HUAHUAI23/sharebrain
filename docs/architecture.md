@@ -16,6 +16,7 @@ ShareBrain 是面向私有化交付、运维和项目团队的项目周期上下
 | 数据 | PostgreSQL、Drizzle ORM | PostgreSQL 作为事实库，开发阶段 Drizzle push 直推 schema；模块记录 values 使用 jsonb |
 | Worker | Bun、轻量 Mastra、Vercel AI SDK | 后台索引、摘要、chunk、embedding、媒体 GC 和周期任务 |
 | 国际化 | `packages/i18n` | 默认中文，保留英文消息结构 |
+| 容器与发布 | Docker Buildx、GitHub Actions、GHCR | 单 Dockerfile 多目标产出四个非 root、多架构服务镜像 |
 
 ## 服务边界
 
@@ -50,6 +51,8 @@ flowchart LR
 - 文档 inline 媒体在上传完成时立即绑定 usage，并由 API/collab 文档物化按媒体节点 `sourceKey` 或媒体节点稳定 URL 校准；普通文本 URL 不形成引用。
 - 模块 API 按聚合拆为 `ModuleTemplatesService`、`ProjectModulesService` 和 `ModuleRecordsService`；路由直接依赖对应 service，共享 access/member validation helper，不保留宽泛 facade。
 - Web 页面身份以 TanStack Router URL 为事实源；文档编辑页、项目模块页、`/settings/new-project` 与 `/settings/storage` 必须支持刷新恢复、浏览器前进后退和深链接。Zustand 只承载侧栏、面板、弹层等局部 UI 状态。
+- 容器发布使用根 Dockerfile 的 `web/api/collab/worker` targets；Web 运行在 Nginx Unprivileged 8080，API/Worker 使用 Bun 1.3.11，Collab 遵循 ADR-004 使用 Node 24。基础镜像固定 digest，运行用户必须为非 root。
+- GitHub Actions 的 Pull Request 只做多架构构建验证；main、SemVer 标签和手动运行才可使用 `GITHUB_TOKEN` 发布 GHCR，并生成 OCI metadata、SBOM、provenance 与 artifact attestation。不得接入 `pull_request_target` 或把服务端 secret 作为镜像 build argument。
 
 ## 正文版本历史
 
@@ -149,3 +152,4 @@ sequenceDiagram
 - TanStack: Query/Router/Table/Form 分别管理服务端状态、路由、表格和复杂表单。
 - Drizzle: 开发阶段使用 `drizzle-kit push` 直推 schema，不生成 migration 文件；稳定阶段再引入迁移流。
 - Mastra: 只作为 worker 的轻量 workflow/agent 层，不进入主业务 API。
+- Container pipeline: 一个多目标 Dockerfile 保持 workspace 安装、基础镜像和安全策略单一来源；GHCR 为当前唯一远端容器 registry。
