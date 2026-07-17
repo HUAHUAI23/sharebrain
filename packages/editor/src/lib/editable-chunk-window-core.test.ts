@@ -13,9 +13,11 @@ import {
   getEditableChunkSelectionRange,
   getEditableVirtualDropBoundary,
   getEditableVirtualDropTarget,
+  isEditableChunkEligibleForPrehydration,
   resolveEditableVirtualDropMove,
   selectionRangePinsEditableChunk,
   selectionPinsEditableChunk,
+  shouldPrehydrateEditableChunk,
 } from './editable-chunk-window-core';
 
 const Chunk = () => null;
@@ -216,6 +218,7 @@ describe('getEditableChunkRenderMode', () => {
     inViewport: true,
     interactionPinned: false,
     mounted: false,
+    prehydrated: false,
     scrolling: false,
     selectionPinned: false,
   };
@@ -246,6 +249,85 @@ describe('getEditableChunkRenderMode', () => {
         selectionPinned: true,
       })
     ).toBe('content');
+  });
+
+  test('hydrates only the selected viewport chunk before scroll settle', () => {
+    expect(
+      getEditableChunkRenderMode({
+        ...base,
+        prehydrated: true,
+        scrolling: true,
+      })
+    ).toBe('content');
+    expect(
+      getEditableChunkRenderMode({
+        ...base,
+        inViewport: false,
+        prehydrated: true,
+        scrolling: true,
+      })
+    ).toBe('placeholder');
+  });
+});
+
+describe('shouldPrehydrateEditableChunk', () => {
+  const base = {
+    idleBudgetMs: 8,
+    quietDurationMs: 32,
+    scrolling: true,
+    settleDelayMs: 120,
+  };
+
+  test('uses the quiet idle window before final settle', () => {
+    expect(shouldPrehydrateEditableChunk(base)).toBe(true);
+    expect(
+      shouldPrehydrateEditableChunk({ ...base, idleBudgetMs: null })
+    ).toBe(true);
+  });
+
+  test('rejects active scrolling, low idle budget and unsafe settle edges', () => {
+    expect(
+      shouldPrehydrateEditableChunk({ ...base, quietDurationMs: 31 })
+    ).toBe(false);
+    expect(
+      shouldPrehydrateEditableChunk({ ...base, idleBudgetMs: 5 })
+    ).toBe(false);
+    expect(
+      shouldPrehydrateEditableChunk({ ...base, quietDurationMs: 104 })
+    ).toBe(false);
+    expect(
+      shouldPrehydrateEditableChunk({ ...base, scrolling: false })
+    ).toBe(false);
+  });
+});
+
+describe('isEditableChunkEligibleForPrehydration', () => {
+  const base = {
+    containsComplexContent: false,
+    containsReviewContent: false,
+    estimatedHeight: 1_200,
+  };
+
+  test('allows bounded plain text chunks only', () => {
+    expect(isEditableChunkEligibleForPrehydration(base)).toBe(true);
+    expect(
+      isEditableChunkEligibleForPrehydration({
+        ...base,
+        containsComplexContent: true,
+      })
+    ).toBe(false);
+    expect(
+      isEditableChunkEligibleForPrehydration({
+        ...base,
+        containsReviewContent: true,
+      })
+    ).toBe(false);
+    expect(
+      isEditableChunkEligibleForPrehydration({
+        ...base,
+        estimatedHeight: 4_001,
+      })
+    ).toBe(false);
   });
 });
 

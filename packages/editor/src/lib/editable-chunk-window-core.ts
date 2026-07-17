@@ -368,6 +368,60 @@ export function selectionPinsEditableChunk(
 
 export type EditableChunkRenderMode = 'content' | 'placeholder' | 'preview';
 
+export function isEditableChunkEligibleForPrehydration(
+  descriptor: Pick<
+    EditableChunkDescriptor,
+    'containsComplexContent' | 'containsReviewContent' | 'estimatedHeight'
+  >,
+  maximumEstimatedHeight = 4_000
+) {
+  return (
+    !descriptor.containsComplexContent &&
+    !descriptor.containsReviewContent &&
+    Number.isFinite(descriptor.estimatedHeight) &&
+    descriptor.estimatedHeight > 0 &&
+    descriptor.estimatedHeight <= Math.max(0, maximumEstimatedHeight)
+  );
+}
+
+export function shouldPrehydrateEditableChunk({
+  idleBudgetMs,
+  minimumIdleBudgetMs = 6,
+  minimumQuietDurationMs = 32,
+  quietDurationMs,
+  scrolling,
+  settleDelayMs,
+  settleSafetyMarginMs = 16,
+}: {
+  idleBudgetMs: number | null;
+  minimumIdleBudgetMs?: number;
+  minimumQuietDurationMs?: number;
+  quietDurationMs: number;
+  scrolling: boolean;
+  settleDelayMs: number;
+  settleSafetyMarginMs?: number;
+}) {
+  if (
+    !scrolling ||
+    !Number.isFinite(quietDurationMs) ||
+    !Number.isFinite(settleDelayMs) ||
+    !Number.isFinite(minimumQuietDurationMs) ||
+    !Number.isFinite(minimumIdleBudgetMs) ||
+    !Number.isFinite(settleSafetyMarginMs) ||
+    quietDurationMs < Math.max(0, minimumQuietDurationMs) ||
+    quietDurationMs >=
+      Math.max(0, settleDelayMs - Math.max(0, settleSafetyMarginMs))
+  ) {
+    return false;
+  }
+
+  return (
+    idleBudgetMs === null ||
+    (Number.isFinite(idleBudgetMs) &&
+      idleBudgetMs >= Math.max(0, minimumIdleBudgetMs))
+  );
+}
+
 export function getEditableChunkRenderMode({
   enabled,
   first,
@@ -375,6 +429,7 @@ export function getEditableChunkRenderMode({
   inViewport,
   interactionPinned,
   mounted,
+  prehydrated,
   scrolling,
   selectionPinned,
 }: {
@@ -384,6 +439,7 @@ export function getEditableChunkRenderMode({
   inViewport: boolean;
   interactionPinned: boolean;
   mounted: boolean;
+  prehydrated: boolean;
   scrolling: boolean;
   selectionPinned: boolean;
 }): EditableChunkRenderMode {
@@ -396,6 +452,8 @@ export function getEditableChunkRenderMode({
   ) {
     return 'content';
   }
+
+  if (prehydrated && inViewport) return 'content';
 
   if (scrolling) {
     if (mounted) return 'content';

@@ -115,6 +115,7 @@
 |------|------|------|
 | 非关键首包拆分 | 历史正文、AI runtime、HTML/DOCX 导出、Word 剪贴板解析和非常用代码语言改为调用时动态加载 | 普通正文首屏不请求 AI、历史正文、DOCX/HTML 或 Word 解析 chunk；`editor-shell` 约 1.387MiB/minified、365.6KiB gzip |
 | 滚动感知 preview | 连续滚动保留已挂载富文本 chunk，新进入区域只显示每 chunk 一个聚合纯文本预览；停止 120ms 后再 hydrate 当前视口 | 90 次 wheel 帧 p50/p95 约 16.7/33.3ms，最大 33.4ms，0 帧超过 50ms，测量期间无 long task |
+| 阅读区两阶段 hydrate | 最后一次 scroll 后保留 32ms 静默窗口；idle budget 至少 6ms 时，以可中断 transition 提前 hydrate 88px 参考线所在的一个简单 chunk，复杂/review/超高 chunk 保持 120ms 安全路径 | 真实 2,463 块 production 文档命中 idle budget 的简单阅读区在约 75.4-83.8ms 提交，比原路径提前约 36-45ms；连续 90 次 scroll 热路径 p95 约 16.7ms、最大 33.4ms且不触发提前提交，落入复杂区后的原最终 hydrate 仍观察到约 51-183ms 长任务 |
 | 显式阅读锚点 | settle 前记录视口 88px 参考线所在 chunk 及内部相对位置；hydrate 和异步测高后在有限帧内补偿真实布局差值，任何新滚动输入立即取消补偿 | 真实 2,463 块文档直接定位 20%/50%/80% 和连续 wheel 后仍保持同一 chunk，阅读点漂移约 0.30-0.49px；TOC 目标顶部为 88.19px |
 | TOC 增量与舒适区 | operation observer 与 TOC 本体隔离；普通段落输入不重建标题索引，chunk 命中使用二分；活动项离开 40%-60% 舒适区后居中，目录尾部保留半屏空间 | 260 个标题滚到底时最后一项“落地步骤”中心位于目录高度约 49.8%，不再贴住底边；每帧 chunk 几何读取从 O(n) 收敛到 O(log n) |
 | 首次选区与路径探测 | 未聚焦首开不创建文档末尾 selection；精确 Path 查询使用无异常 `NodeApi.getIf` 快路径 | 避免 selection overlay 跨窗口测量，以及 Enter 越界探测序列化完整 editor |
@@ -125,7 +126,8 @@
 2. 当前真实目标冷开最大长任务仍约 1.37 秒；完整 Yjs→Slate hydrate 和 React element 首次创建仍在主线程执行。缺 ID 或私有 chunk 元数据不满足约束的区间会局部回退完整 DOM。
 3. 窗口模式已用模型索引替代浏览器原生查找；中文 composition 期间暂停定位，命中用非编辑 CSS Highlight 展示，避免抢焦点和唤起选区菜单；小文档仍保留浏览器原生查找。
 4. 指标事件目前只在浏览器内派发，尚未接入服务端时序指标平台；固定 production fixture 与 p50/p95 trace 也尚未纳入仓库自动化。
-5. 占位高度在首次实测前仍是估算值，因此滚动条总长度和绝对百分比可能随测高校正；当前阅读点已由显式 chunk 锚点稳定，preview 换入富文本后的实测漂移低于 0.5px。
+5. 占位高度在首次实测前仍是估算值，因此滚动条总长度和绝对百分比可能随测高校正；当前阅读点已由显式 chunk 锚点稳定，preview 换入富文本后的实测漂移低于 0.5px。复杂、review 或估高超过 4,000px 的 chunk 不做提前 hydrate，继续以 120ms 路径换取滚动帧稳定。
+6. 两阶段 hydrate 只优化简单阅读区的可感知等待，不拆分复杂 chunk 自身的 React/DOM 提交；代码块等复杂区在滚动停止后的首次完整绘制仍可能形成约 50-180ms 长任务，后续需要在 Plate chunk 边界或复杂节点内部单独拆分。
 
 ### 3.1 为什么成熟云文档的可编辑首屏更快
 
@@ -192,7 +194,7 @@ flowchart LR
 | 挂载 DOM | 真实目标约 1,575；1,200 块夹具约 621 | 常态 <= 10,000 已满足；继续约束与总块数解耦 |
 | 普通字符输入 | 1,200 块夹具按键到下一帧 p95 约 30.7ms | 浏览器内 p95 <= 50ms，已满足 |
 | Enter | 同夹具 p95 约 93.6ms | 浏览器内 p95 <= 100ms，已满足 |
-| 稳定滚动与大纲 | 90 次 wheel p95 约 33.3ms、无 >50ms 帧或 long task；hydrate 后阅读点漂移低于 0.5px；末项位于目录 49.8% | 稳定区段无 >50ms 长任务，帧间隔 p95 <= 33ms，继续观察边界波动 |
+| 稳定滚动与大纲 | 90 次 wheel p95 约 33.3ms；简单阅读区提前 36-45ms hydrate，连续滚动热路径不触发提前提交；hydrate 后阅读点漂移低于 0.5px；复杂区最终 hydrate 仍可能有约 50-180ms 长任务；末项位于目录 49.8% | 稳定区段无 >50ms 长任务，帧间隔 p95 <= 33ms，并继续拆分复杂区首次绘制 |
 
 ## 5. 明确不采用的替代方案
 
@@ -209,6 +211,7 @@ flowchart LR
 - [布局、目录与中文查找 P2 修复](../helloagents/history/2026-07/202607160159_editor_layout_toc_find_p2/how.md)
 - [加载、输入与目录滚动回归修复](../helloagents/history/2026-07/202607160340_editor_load_input_toc_followup/how.md)
 - [窗口滚动落点稳定修复](../helloagents/history/2026-07/202607160928_editor_scroll_anchor_stability/how.md)
+- [预测式提前 hydrate](../helloagents/history/2026-07/202607161237_editor_predictive_hydration/how.md)
 - [滚动性能优化方案](../helloagents/history/2026-07/202607141156_editor_performance/how.md)
 - [普通输入性能优化方案](../helloagents/history/2026-07/202607150240_editor_input_performance/how.md)
 - [首次加载与 Enter 性能优化方案](../helloagents/history/2026-07/202607150522_editor_load_enter_performance/how.md)

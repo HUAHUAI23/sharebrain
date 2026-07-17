@@ -27,8 +27,10 @@ import {
   getEditableChunkSelectionRange,
   getEditableVirtualDropBoundary,
   getEditableVirtualDropTarget,
+  isEditableChunkEligibleForPrehydration,
   resolveEditableVirtualDropMove,
   selectionRangePinsEditableChunk,
+  shouldPrehydrateEditableChunk,
 } from '../lib/editable-chunk-window-core';
 import {
   EDITABLE_WINDOW_METRIC_EVENT,
@@ -86,7 +88,14 @@ type EditableChunkWindowContextValue = {
 
 type RegisteredChunk = Pick<
   EditableChunkDescriptor,
-  'blockPaths' | 'endIndex' | 'key' | 'startIndex' | 'topLevelBlocks'
+  | 'blockPaths'
+  | 'containsComplexContent'
+  | 'containsReviewContent'
+  | 'endIndex'
+  | 'estimatedHeight'
+  | 'key'
+  | 'startIndex'
+  | 'topLevelBlocks'
 >;
 
 type EditableChunkWindowCoverage = {
@@ -107,6 +116,8 @@ const defaultMaxRevealFailures = 3;
 const forcedRevealDurationMs = 3_000;
 const revealFrameBudget = 120;
 const scrollSettleDelayMs = 120;
+const scrollPrehydrateQuietDelayMs = 32;
+const scrollPrehydrateIdleTimeoutMs = 32;
 const scrollAnchorFrameBudget = 18;
 const scrollAnchorViewportOffsetPx = 88;
 
@@ -149,11 +160,14 @@ class EditableChunkWindowStore {
   private readonly interactionReasons = new Map<string, string>();
   private readonly mountedChunks = new Set<string>();
   private readonly mountListeners = new Set<() => void>();
+  private readonly prehydrateListeners = new Map<string, Set<() => void>>();
+  private readonly prehydratedChunks = new Set<string>();
   private readonly revisions = new Map<string, number>();
   private readonly scrollListeners = new Map<string, Set<() => void>>();
   private readonly viewportChunks = new Set<string>();
   private selectionRange: EditableChunkSelectionRange | null = null;
   private mountRevision = 0;
+  private prehydrationConsumed = false;
   private scrolling = false;
   private auditListener: ((audit: EditableChunkWindowAudit) => void) | null =
     null;
@@ -192,6 +206,7 @@ class EditableChunkWindowStore {
 
       this.chunks.delete(descriptor.key);
       this.interactionCounts.delete(descriptor.key);
+      this.clearPrehydratedChunk(descriptor.key);
       this.viewportChunks.delete(descriptor.key);
       for (const [reason, key] of this.interactionReasons) {
         if (key === descriptor.key) this.interactionReasons.delete(reason);
@@ -247,10 +262,24 @@ class EditableChunkWindowStore {
 
   getScrolling = () => this.scrolling;
 
+  subscribePrehydration(key: string, listener: () => void) {
+    const listeners = this.prehydrateListeners.get(key) ?? new Set();
+
+    listeners.add(listener);
+    this.prehydrateListeners.set(key, listeners);
+
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) this.prehydrateListeners.delete(key);
+    };
+  }
+
   setScrolling(scrolling: boolean) {
     if (this.scrolling === scrolling) return;
 
     this.scrolling = scrolling;
+    if (scrolling) this.prehydrationConsumed = false;
+    else this.clearPrehydration();
     const affectedChunks = new Set([
       ...this.mountedChunks,
       ...this.viewportChunks,
@@ -263,7 +292,10 @@ class EditableChunkWindowStore {
 
   setInViewport(key: string, inViewport: boolean) {
     if (inViewport) this.viewportChunks.add(key);
-    else this.viewportChunks.delete(key);
+    else {
+      this.viewportChunks.delete(key);
+      this.clearPrehydratedChunk(key);
+    }
   }
 
   getRevision(key: string) {
@@ -292,6 +324,35 @@ class EditableChunkWindowStore {
 
   isMounted(key: string) {
     return this.mountedChunks.has(key);
+  }
+
+  isPrehydrated(key: string) {
+    return this.prehydratedChunks.has(key);
+  }
+
+  prehydrate(key: string) {
+    const chunk = this.chunks.get(key);
+
+    if (
+      !this.scrolling ||
+      !chunk ||
+      !this.viewportChunks.has(key) ||
+      this.mountedChunks.has(key) ||
+      this.prehydratedChunks.has(key) ||
+      this.prehydrationConsumed ||
+      !isEditableChunkEligibleForPrehydration(chunk)
+    ) {
+      return false;
+    }
+
+    this.prehydrationConsumed = true;
+    this.prehydratedChunks.add(key);
+    this.publishPrehydration(key);
+    return true;
+  }
+
+  cancelPrehydration() {
+    this.clearPrehydration();
   }
 
   pinBlock(blockId: string, path: number[] | undefined, reason: string) {
@@ -482,6 +543,22 @@ class EditableChunkWindowStore {
   private publish(key: string) {
     this.revisions.set(key, (this.revisions.get(key) ?? 0) + 1);
     this.chunkListeners.get(key)?.forEach((listener) => listener());
+  }
+
+  private clearPrehydratedChunk(key: string) {
+    if (!this.prehydratedChunks.delete(key)) return;
+    this.publishPrehydration(key);
+  }
+
+  private clearPrehydration() {
+    const keys = Array.from(this.prehydratedChunks);
+
+    this.prehydratedChunks.clear();
+    keys.forEach((key) => this.publishPrehydration(key));
+  }
+
+  private publishPrehydration(key: string) {
+    this.prehydrateListeners.get(key)?.forEach((listener) => listener());
   }
 
   private publishCoverage() {
@@ -714,10 +791,21 @@ export function EditableChunkWindowProvider({
     if (scrollRoot !== 'viewport' && !scrollElement) return;
 
     let settleTimer: number | null = null;
+    let prehydrateTimer: number | null = null;
+    let prehydrateIdleHandle: number | null = null;
+    let prehydrateFrame: number | null = null;
     let stabilizationFrame: number | null = null;
     let stabilizationFramesRemaining = 0;
     let activeAnchor: EditableChunkScrollAnchorTarget | null = null;
     let expectedScrollPosition: number | null = null;
+    let lastScrollAt = 0;
+    const idleWindow = window as typeof window & {
+      cancelIdleCallback?: (handle: number) => void;
+      requestIdleCallback?: (
+        callback: (deadline: { timeRemaining: () => number }) => void,
+        options?: { timeout: number }
+      ) => number;
+    };
     const getScrollPosition = () =>
       scrollElement ? scrollElement.scrollTop : window.scrollY;
     const getMaximumScrollPosition = () =>
@@ -738,6 +826,20 @@ export function EditableChunkWindowProvider({
       stabilizationFramesRemaining = 0;
       activeAnchor = null;
       expectedScrollPosition = null;
+    };
+    const cancelPrehydrateSchedule = () => {
+      if (prehydrateTimer !== null) {
+        window.clearTimeout(prehydrateTimer);
+        prehydrateTimer = null;
+      }
+      if (prehydrateIdleHandle !== null) {
+        idleWindow.cancelIdleCallback?.(prehydrateIdleHandle);
+        prehydrateIdleHandle = null;
+      }
+      if (prehydrateFrame !== null) {
+        cancelAnimationFrame(prehydrateFrame);
+        prehydrateFrame = null;
+      }
     };
     const captureScrollAnchor = (): EditableChunkScrollAnchorTarget | null => {
       let editorElement: HTMLElement | null = null;
@@ -837,9 +939,50 @@ export function EditableChunkWindowProvider({
       stabilizationFramesRemaining = scrollAnchorFrameBudget;
       stabilizationFrame = requestAnimationFrame(stabilize);
     };
+    const prehydrateReadingChunk = (idleBudgetMs: number | null) => {
+      if (
+        !shouldPrehydrateEditableChunk({
+          idleBudgetMs,
+          quietDurationMs: performance.now() - lastScrollAt,
+          scrolling: store.getScrolling(),
+          settleDelayMs: scrollSettleDelayMs,
+        })
+      ) {
+        return;
+      }
+
+      const anchor = captureScrollAnchor();
+      const key = anchor?.element.dataset.editorChunkKey;
+
+      if (!anchor || !key || !store.prehydrate(key)) return;
+      startStabilization(anchor);
+    };
+    const schedulePrehydrate = () => {
+      cancelPrehydrateSchedule();
+      prehydrateTimer = window.setTimeout(() => {
+        prehydrateTimer = null;
+
+        if (idleWindow.requestIdleCallback) {
+          prehydrateIdleHandle = idleWindow.requestIdleCallback(
+            (deadline) => {
+              prehydrateIdleHandle = null;
+              prehydrateReadingChunk(deadline.timeRemaining());
+            },
+            { timeout: scrollPrehydrateIdleTimeoutMs }
+          );
+          return;
+        }
+
+        prehydrateFrame = requestAnimationFrame(() => {
+          prehydrateFrame = null;
+          prehydrateReadingChunk(null);
+        });
+      }, scrollPrehydrateQuietDelayMs);
+    };
     const settle = () => {
       settleTimer = null;
-      const anchor = captureScrollAnchor();
+      cancelPrehydrateSchedule();
+      const anchor = activeAnchor ?? captureScrollAnchor();
 
       store.setScrolling(false);
       startStabilization(anchor);
@@ -857,11 +1000,17 @@ export function EditableChunkWindowProvider({
         return;
       }
 
+      lastScrollAt = performance.now();
       store.setScrolling(true);
+      schedulePrehydrate();
       if (settleTimer !== null) window.clearTimeout(settleTimer);
       settleTimer = window.setTimeout(settle, scrollSettleDelayMs);
     };
-    const cancelForUserScroll = () => cancelStabilization();
+    const cancelForUserScroll = () => {
+      cancelPrehydrateSchedule();
+      cancelStabilization();
+      store.cancelPrehydration();
+    };
     const cancelForKeyboardScroll = (event: KeyboardEvent) => {
       if (
         [
@@ -900,6 +1049,7 @@ export function EditableChunkWindowProvider({
       window.removeEventListener('pointerdown', cancelForUserScroll, true);
       window.removeEventListener('keydown', cancelForKeyboardScroll, true);
       if (settleTimer !== null) window.clearTimeout(settleTimer);
+      cancelPrehydrateSchedule();
       cancelStabilization();
       store.setScrolling(false);
     };
@@ -1125,6 +1275,7 @@ export function EditableChunkWindow({
   const [inViewport, setInViewport] = React.useState(
     descriptor.startIndex === 0
   );
+  const [prehydrated, setPrehydrated] = React.useState(false);
   const enabled = Boolean(context?.enabled);
   const store = context?.store;
   const [dropLineOffset, setDropLineOffset] = React.useState<number | null>(
@@ -1137,7 +1288,10 @@ export function EditableChunkWindow({
     return store.register(descriptor);
   }, [
     descriptor.blockPaths.length,
+    descriptor.containsComplexContent,
+    descriptor.containsReviewContent,
     descriptor.endIndex,
+    descriptor.estimatedHeight,
     descriptor.key,
     descriptor.startIndex,
     enabled,
@@ -1198,6 +1352,26 @@ export function EditableChunkWindow({
     () => false
   );
 
+  React.useEffect(() => {
+    if (!enabled || !store) {
+      setPrehydrated(false);
+      return;
+    }
+
+    const update = () => {
+      const nextPrehydrated = store.isPrehydrated(descriptor.key);
+
+      if (nextPrehydrated) {
+        React.startTransition(() => setPrehydrated(true));
+      } else {
+        setPrehydrated(false);
+      }
+    };
+
+    update();
+    return store.subscribePrehydration(descriptor.key, update);
+  }, [descriptor.key, enabled, store]);
+
   const forced = store?.isForced(descriptor.key) ?? false;
   const interactionPinned =
     store?.isInteractionPinned(descriptor.key) ?? false;
@@ -1210,6 +1384,7 @@ export function EditableChunkWindow({
     inViewport,
     interactionPinned,
     mounted,
+    prehydrated,
     scrolling,
     selectionPinned,
   });
@@ -1217,6 +1392,7 @@ export function EditableChunkWindow({
 
   if (!enabled) renderReason = 'disabled';
   else if (descriptor.startIndex === 0) renderReason = 'first';
+  else if (prehydrated) renderReason = 'prehydrate';
   else if (inViewport) renderReason = 'viewport';
   else if (selectionPinned) renderReason = 'selection';
   else if (interactionPinned) renderReason = 'interaction';
@@ -1387,6 +1563,7 @@ export function EditableChunkWindow({
       {...attributes}
       ref={setElementRef}
       data-editor-chunk-window={enabled ? 'true' : undefined}
+      data-editor-chunk-key={enabled ? descriptor.key : undefined}
       data-editor-chunk-start={enabled ? descriptor.startIndex : undefined}
       data-editor-chunk-end={enabled ? descriptor.endIndex : undefined}
       data-editor-chunk-complex={
