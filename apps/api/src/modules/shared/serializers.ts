@@ -1,5 +1,6 @@
 import type {
   DocumentDetail,
+  DocumentPreview,
   DocumentMetadata,
   DocumentSummary,
   MediaObject,
@@ -170,6 +171,18 @@ export function serializeDocumentMetadata(
   return {
     ...serializeDocumentSummary(row),
     currentVersion: row.currentVersion,
+  };
+}
+
+export function serializeDocumentPreview(
+  row: Select<typeof documents>,
+  plateJson: unknown[],
+  totalBlocks: number,
+): DocumentPreview {
+  return {
+    ...serializeDocumentMetadata(row),
+    plateJson,
+    totalBlocks,
   };
 }
 

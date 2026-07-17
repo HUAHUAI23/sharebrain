@@ -41,6 +41,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { KEYS, type TElement, type Value } from "platejs";
 import { Plate, usePlateEditor, type PlateChunkProps } from "platejs/react";
+import { VersionPreview } from "@sharebrain/editor/ui/version-preview";
 import {
   useCallback,
   useEffect,
@@ -73,13 +74,14 @@ import {
 import { deferYjsEditorConnectionUntilInitialSync } from "./editor-yjs-bootstrap";
 import type {
   DocumentMetadataResponse,
+  DocumentPreviewResponse,
   MeResponse,
   WorkspaceView,
 } from "../workspace/workspace-types";
 
 const emptyPlateValue: Value = [{ type: "p", children: [{ text: "" }] }];
 const emptyMembers: TenantMember[] = [];
-const documentEditorChunkSize = 15;
+const documentEditorChunkSize = 4;
 const documentEditorOverscanPx = 700;
 
 function DocumentEditorChunk({ attributes, children, lowest }: PlateChunkProps) {
@@ -175,6 +177,15 @@ export function EditorShell({ projectId, moduleId, documentId, recordId, onNavig
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
   });
+  const documentPreview = useQuery({
+    queryKey: queryKeys.documentPreview(documentId),
+    queryFn: () =>
+      apiRequest<DocumentPreviewResponse>(
+        `/api/documents/${documentId}?includeContent=preview`,
+      ),
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+  });
   const discussions = useQuery({
     queryKey: queryKeys.documentDiscussions(documentId),
     queryFn: () => apiRequest<DocumentDiscussionsResponse>(`/api/documents/${documentId}/discussions`),
@@ -214,6 +225,9 @@ export function EditorShell({ projectId, moduleId, documentId, recordId, onNavig
       capabilities={me.data.capabilities}
       user={me.data.user}
       initialDocument={document.data}
+      {...(documentPreview.data
+        ? { initialPreview: documentPreview.data.plateJson }
+        : {})}
       initialDiscussions={initialDiscussions}
       initialReadStates={initialReadStates}
       members={members.data?.items ?? emptyMembers}
@@ -231,6 +245,7 @@ type DocumentEditorProps = {
   capabilities?: MeResponse["capabilities"];
   user: MeResponse["user"];
   initialDocument: DocumentMetadataResponse;
+  initialPreview?: unknown[];
   initialDiscussions: TDiscussion[];
   initialReadStates: TDiscussionReadState[];
   members: TenantMember[];
@@ -246,6 +261,7 @@ function DocumentEditor({
   capabilities,
   user,
   initialDocument,
+  initialPreview,
   initialDiscussions,
   initialReadStates,
   members,
@@ -253,6 +269,10 @@ function DocumentEditor({
 }: DocumentEditorProps) {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(normalizeDocumentTitleInput(initialDocument.title));
+  const initialPreviewValue = useMemo(
+    () => (initialPreview ? toPlateValue(initialPreview) : null),
+    [initialPreview],
+  );
   const [editorReady, setEditorReady] = useState(false);
   const [historySnapshot, setHistorySnapshot] = useState<{
     selectedKey: string;
@@ -739,12 +759,21 @@ function DocumentEditor({
               <Editor
                 variant="none"
                 readOnly={!editorReady}
-                className="min-h-[56vh] min-w-0 w-full px-[var(--editor-content-gutter)] pt-0 pb-36 text-base leading-7 text-foreground"
+                aria-hidden={!editorReady ? true : undefined}
+                className={`min-h-[56vh] min-w-0 w-full px-[var(--editor-content-gutter)] pt-0 pb-36 text-base leading-7 text-foreground ${
+                  editorReady ? "" : "pointer-events-none absolute inset-0 invisible"
+                }`}
                 placeholder={m.document_editor_placeholder()}
                 renderChunk={DocumentEditorChunk}
                 onKeyDown={handleEditorKeyDown}
                 onPaste={handleEditorPaste}
               />
+              {!editorReady && initialPreviewValue ? (
+                <VersionPreview
+                  value={initialPreviewValue}
+                  className="min-h-[56vh] min-w-0 w-full px-[var(--editor-content-gutter)] pt-0 pb-36 text-base leading-7 text-foreground"
+                />
+              ) : null}
             </EditorContainer>
           </article>
           <EditorWindowFind />

@@ -25,10 +25,19 @@ export function useDocumentVersionDetail(
   enabled: boolean,
 ) {
   return useQuery({
-    queryKey: queryKeys.documentVersion(documentId, versionId ?? "none"),
+    ...getDocumentVersionDetailQueryOptions(documentId, versionId ?? "none"),
+    enabled: enabled && Boolean(versionId),
+  });
+}
+
+export function getDocumentVersionDetailQueryOptions(
+  documentId: string,
+  versionId: string,
+) {
+  return {
+    queryKey: queryKeys.documentVersion(documentId, versionId),
     queryFn: () =>
       apiRequest<DocumentVersionDetail>(`/api/documents/${documentId}/versions/${versionId}`),
-    enabled: enabled && Boolean(versionId),
     staleTime: Number.POSITIVE_INFINITY,
-  });
+  } as const;
 }

@@ -42,7 +42,7 @@ export function DocumentVersionHistoryContent({
   const [changeIndex, setChangeIndex] = useState(0);
   const diff = useDocumentVersionDiff({
     current: value,
-    enabled: mode === "changes" && Boolean(previousValue) && !loading && !error,
+    enabled: Boolean(previousValue) && !loading && !error,
     ...(previousValue ? { previous: previousValue } : {}),
   });
   const diffLimited = diff.status === "limited";

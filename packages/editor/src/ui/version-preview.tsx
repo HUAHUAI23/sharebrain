@@ -5,13 +5,15 @@ import {
   usePlateEditor,
   type PlateChunkProps,
 } from 'platejs/react';
+import { createStaticEditor } from 'platejs/static';
 import * as React from 'react';
 
 import { BaseEditorKit } from '../editor-base-kit';
 import { cloneEditorVersionValue } from '../lib/version-history-core';
 import { Editor } from './editor';
+import { EditorStatic } from './editor-static';
 
-const versionPreviewBatchSize = 50;
+const versionPreviewBatchSize = 30;
 const versionPreviewInteractionPauseMs = 120;
 const versionPreviewValueKeys = new WeakMap<object, number>();
 let nextVersionPreviewValueKey = 1;
@@ -149,13 +151,34 @@ function ProgressiveVersionPreview({
       aria-busy={renderedBatchCount < batches.length}
     >
       {batches.slice(0, renderedBatchCount).map((batch, index) => (
-        <VersionPreviewBatch
-          key={index}
-          value={batch}
-          {...(plugins ? { plugins } : {})}
-        />
+        plugins ? (
+          <VersionPreviewBatch key={index} value={batch} plugins={plugins} />
+        ) : (
+          <StaticVersionPreviewBatch key={index} value={batch} />
+        )
       ))}
     </div>
+  );
+}
+
+function StaticVersionPreviewBatch({ value }: Pick<VersionPreviewProps, 'value'>) {
+  const editor = React.useMemo(
+    () =>
+      createStaticEditor({
+        plugins: BaseEditorKit,
+        value: cloneEditorVersionValue(value),
+      }),
+    [value]
+  );
+
+  return (
+    <EditorStatic
+      editor={editor}
+      value={editor.children}
+      variant="none"
+      className="w-full"
+      data-version-preview-batch="static"
+    />
   );
 }
 
@@ -182,6 +205,7 @@ function VersionPreviewBatch({
         readOnly
         className="w-full"
         renderChunk={VersionPreviewChunk}
+        data-version-preview-batch="plate"
       />
     </Plate>
   );

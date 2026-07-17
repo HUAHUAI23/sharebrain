@@ -28,12 +28,16 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
 import { useDocumentActivityList } from "./document-activity-history.queries";
 import { DocumentHistoryActorAvatar } from "./document-history-avatar";
 import { DocumentVersionHistoryList } from "./document-version-history-list";
-import { useDocumentVersionList } from "./document-version-history.queries";
+import {
+  getDocumentVersionDetailQueryOptions,
+  useDocumentVersionList,
+} from "./document-version-history.queries";
 
 export type DocumentHistoryTab = "activity" | "versions";
 
@@ -419,6 +423,7 @@ export function DocumentHistoryPanel({
   onOpenVersion,
   memberAvatarUrls,
 }: DocumentHistoryPanelProps) {
+  const queryClient = useQueryClient();
   const versionList = useDocumentVersionList(documentId, open && tab === "versions");
   const versionItems = useMemo(
     () => versionList.data?.pages.flatMap((page) => page.items) ?? [],
@@ -433,6 +438,32 @@ export function DocumentHistoryPanel({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose, open, suspended]);
+
+  useEffect(() => {
+    const firstVersionId = versionItems[0]?.id;
+    if (!open || tab !== "versions" || !firstVersionId) return;
+
+    const idleWindow = window as typeof window & {
+      cancelIdleCallback?: (handle: number) => void;
+      requestIdleCallback?: (
+        callback: () => void,
+        options?: { timeout: number },
+      ) => number;
+    };
+    const prefetch = () => {
+      void queryClient.prefetchQuery(
+        getDocumentVersionDetailQueryOptions(documentId, firstVersionId),
+      );
+    };
+
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(prefetch, { timeout: 600 });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+
+    const timer = window.setTimeout(prefetch, 60);
+    return () => window.clearTimeout(timer);
+  }, [documentId, open, queryClient, tab, versionItems]);
 
   if (!open) return null;
 

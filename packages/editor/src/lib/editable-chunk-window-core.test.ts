@@ -5,6 +5,7 @@ import { createElement } from 'react';
 import {
   estimateEditableBlockHeight,
   getEditableChunkBlockPathAtOffset,
+  getEditableChunkHydrationOrder,
   getEditableChunkDescriptor,
   getEditableChunkRange,
   getEditableChunkRenderMode,
@@ -328,6 +329,27 @@ describe('isEditableChunkEligibleForPrehydration', () => {
         estimatedHeight: 4_001,
       })
     ).toBe(false);
+  });
+});
+
+describe('getEditableChunkHydrationOrder', () => {
+  const chunks = [
+    { key: '0:8', startIndex: 0 },
+    { key: '8:16', startIndex: 8 },
+    { key: '16:24', startIndex: 16 },
+    { key: '24:32', startIndex: 24 },
+  ];
+
+  test('prioritizes the reading chunk and expands by model distance', () => {
+    expect(
+      getEditableChunkHydrationOrder(chunks, '16:24').map((chunk) => chunk.key)
+    ).toEqual(['16:24', '8:16', '24:32', '0:8']);
+  });
+
+  test('keeps document order without a valid reading chunk', () => {
+    expect(
+      getEditableChunkHydrationOrder(chunks, 'missing').map((chunk) => chunk.key)
+    ).toEqual(['0:8', '8:16', '16:24', '24:32']);
   });
 });
 

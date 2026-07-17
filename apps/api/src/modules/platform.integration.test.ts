@@ -1173,6 +1173,20 @@ describe("platform API", () => {
     expect(documentMetadata).not.toHaveProperty("markdown");
     expect(documentMetadata).not.toHaveProperty("plainText");
 
+    const documentPreview = asRecord(
+      (
+        await request(
+          `/api/documents/${String(document.id)}?includeContent=preview`,
+        )
+      ).body,
+    );
+    expect(documentPreview.plateJson).toEqual([
+      { children: [{ text: "api test searchable text" }], type: "p" },
+    ]);
+    expect(documentPreview.totalBlocks).toBe(1);
+    expect(documentPreview).not.toHaveProperty("markdown");
+    expect(documentPreview).not.toHaveProperty("plainText");
+
     const documentDetail = asRecord(
       (await request(`/api/documents/${String(document.id)}`)).body,
     );

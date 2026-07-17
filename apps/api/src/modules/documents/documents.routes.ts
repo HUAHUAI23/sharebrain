@@ -43,6 +43,10 @@ export function createDocumentsRoutes() {
       return context.json(await service.getMetadata(context.var.auth, documentId));
     }
 
+    if (context.req.query("includeContent") === "preview") {
+      return context.json(await service.getPreview(context.var.auth, documentId));
+    }
+
     return context.json(await service.get(context.var.auth, documentId));
   });
 

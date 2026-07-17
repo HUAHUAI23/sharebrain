@@ -1,8 +1,8 @@
 # 大文档编辑器性能优化现状与下一阶段路线
 
-> 状态：P2-P5 可编辑窗口化及完整能力已完成，下一阶段转向模型/同步分阶段加载
+> 状态：P2-P5 可编辑窗口化及完整能力已完成，P6 已落地首屏预览与细粒度渐进 hydrate，完整模型/同步分段仍待推进
 >
-> 更新日期：2026-07-16
+> 更新日期：2026-07-17
 >
 > 范围：`apps/web`、`apps/api`、`apps/collab`、`packages/editor`、`packages/contracts`
 
@@ -10,9 +10,11 @@
 
 第一阶段已经移除滚动、普通输入、首次加载和 Enter 热路径中可避免的全树订阅、全文扫描、重复正文请求、同步布局读取和逐块隐藏 UI 挂载。P2 进一步在保留完整 Yjs/Slate value 的前提下，将可编辑 DOM 收敛到视口、overscan、选区、IME 与显式 reveal 对应的 Plate chunk，屏幕外 chunk 使用测量或估算高度占位。
 
-当前真实文档包含 2,463 个顶层块。最新 production 构建冷开约 3.4-3.9 秒进入可编辑态，同浏览器上下文复用 IndexedDB 快照约 2.42 秒；常态 DOM 约 1,575，165 个 chunk 中约 162 个保持占位，fallback 为 0。冷开最大长任务约 1.37 秒，已经消除此前 7-28 秒的大快照逐 operation 回放，但完整 Yjs→Slate hydrate 与 React element 首次创建仍决定首屏上限，还没有达到完全无感。
+当前真实目标文档包含约 2,483 个顶层块。最新 production 构建会并行请求 metadata、数据库侧截取的前 24 块静态预览和 Yjs 正文：metadata 约 43ms、preview endpoint 约 86ms/2.1KB，约 1.8 秒出现可阅读预览；真正可编辑仍约 4.0-4.12 秒，受 Hocuspocus 与远端数据库波动影响，未证明比约 3.69 秒基线更快。优化的直接收益是缩短空白等待，并没有绕过完整 Yjs→Slate hydrate 与 React element 首次创建。
 
-一次性 1,200 块 production 夹具验证了普通字符、跨 chunk Enter/Backspace、粘贴、undo/redo 和 composition。最新按键到下一帧指标为普通字符 p50/p95 约 22.1/30.7ms，Enter p50/p95 约 33.3/93.6ms；夹具在测试后删除并确认返回 404。下一阶段重点已从“是否能窗口化”转为更早的首屏数据和 React element 分阶段处理。
+可编辑窗口进一步收窄为每 4 个顶层块一个 chunk。目标文档约 621 个 chunk、612 个 placeholder，常态 DOM 约 2,400；wrapper 数量高于旧 15 块策略，但滚动停止后按阅读位置逐 chunk 提交，80% 复杂区域 settle 长任务从约 318ms 降到约 90ms，20%/50%/80% 阅读锚点漂移约 0.28/0.29/0.30px。
+
+一次性 2,000 段 production 夹具验证了普通字符、Enter/Backspace 等输入热路径。可编辑就绪约 2.43 秒；普通字符 p50/p95 约 22.8/42.7ms，Enter 约 60.3/81.6ms，Backspace 约 49.9/51.1ms；夹具在测试后删除并确认返回 404。下一阶段重点已从“是否能窗口化”转为真正的 Yjs/Slate 模型分段与可编辑首屏优先级。
 
 历史 Changes 已从这条完整 DOM 成本中拆出：大版本 Diff 在 Web Worker 中计算，主线程只渲染变化块及相邻上下文。可编辑正文的 `content-visibility`/idle 预热实验没有降低 production 初始化最大长任务，并在开发构建产生约 38.9 秒长任务，已撤回；该结果进一步确认可编辑场景必须进入真正的块级窗口化，不能把延迟布局当作虚拟化。
 
@@ -75,7 +77,8 @@
 | Worker-safe 计算 | 将纯预算、Diff 和上下文投影拆到不依赖 React、DOM、`BaseEditorKit` 的入口 | 真实版本 payload 总往返约 882ms、计算约 697ms；Worker raw bundle 从约 2.56MB 降至约 210KB |
 | 变化上下文 | 递归识别顶层块内 marker，只渲染变化块及前后各 5 个上下文块，相邻窗口自动合并 | 目标版本 5→6 可继续省略约 2,400 个未变化块，同时提供更容易辨认位置的局部正文 |
 | 历史入口惰性快照 | 检查历史版本/Activity revision 时不再预先深拷贝 live 全文；当前正文按需投影，restore 在执行时读取最新 Yjs state vector | 移除目标大文档打开历史时约 3 秒的无用主线程全文克隆 |
-| 完整 Page | 将 Value 切成稳定的 50 顶层块批次；首批为独立只读 Plate，其余在 idle transition 中追加，交互后暂停 120ms | 目标版本首批从约 9.1s 降至约 0.88s，初始 DOM 约 1,228、最大首批任务约 325ms；49 批约 15.6s 完整 hydrate，最终 DOM/正文完整 |
+| 完整 Page | 无自定义 Diff plugins 时使用 `createStaticEditor + EditorStatic`，将 Value 切成 30 顶层块批次；其余在 idle transition 中追加，交互后暂停 120ms | 目标版本首批约 131-157ms，2.5 秒后已绘制 20 个 static batches；期间仅 3 个约 50-58ms 的边界长任务 |
+| 历史预取与状态保留 | Versions 列表可见后在 idle 阶段预取首个版本 detail；Page 模式继续保留 Changes Worker 结果 | 侧栏约 171-184ms 可见，列表再约 279-324ms；Page 切回 Changes 从约 1.61s 降到约 386ms，避免重新计算 Diff |
 
 这里的“历史 Page 预览”仅指版本历史工作区中的完整只读版本正文。它和当前主页面的可编辑正文是两个独立渲染入口：`Changes` 只显示变化窗口，`Page` 渐进补齐所选历史版本全文；主编辑器仍使用一个完整 Plate/Slate editor，但从 P2 开始只提交当前窗口对应的可编辑 DOM。
 
@@ -84,7 +87,7 @@
 | 优化 | 实现 | 结果 |
 |------|------|------|
 | 受保护 chunk 适配 | 从 Plate lowest chunk 的连续 Slate leaf 提取顶层范围、block ID/path、估高和复杂内容标记；缺 ID、重复 ID 或结构不连续时仅该 chunk 回退完整 DOM | Plate 私有结构依赖收敛到一个有单测的边界，不改变 Yjs/Slate 数据与协作协议 |
-| 视口窗口与高度占位 | 文档页使用 15 块 chunk 与 700px overscan；`ResizeObserver` 异步缓存实测高度，未测量时使用节点类型与文本长度估高 | 当前 2,463 块文档 production 常态 DOM 约 1,575，165 个 chunk 中约 162 个保持占位，fallback 为 0 |
+| 视口窗口与高度占位 | 文档页使用 4 块 chunk 与 700px overscan；`ResizeObserver` 异步缓存实测高度，未测量时使用节点类型与文本长度估高 | 当前约 2,483 块文档 production 常态 DOM 约 2,400，621 个 chunk 中约 612 个保持占位，fallback 为 0 |
 | 编辑安全固定挂载 | 首 chunk、选区范围及相邻块、composition、媒体、Toggle、列布局和 review 内容固定挂载；表格/代码块按顶层 chunk 边界处理 | 隔离夹具字符、跨边界 Enter/Backspace、粘贴、undo/redo、composition 全部通过且无运行错误 |
 | 统一 reveal | Provider 维护 block/path 到 chunk 的索引；TOC 与评论先 reveal，等 DOM 提交后再定位 | 260 项完整大纲可点击最后标题；评论目标即使初始未挂载也能唤醒 |
 | 窗口化大纲定位 | 大纲从完整 Slate model 建立 heading/path；滚动参考线在 chunk 换入前可按 chunk 几何范围回退，ResizeObserver 在布局稳定后重算 | 真实文档 0/25/50/75/100% 滚动对应活动索引 0/63/124/193/259，不再滞留首项 |
@@ -120,14 +123,23 @@
 | TOC 增量与舒适区 | operation observer 与 TOC 本体隔离；普通段落输入不重建标题索引，chunk 命中使用二分；活动项离开 40%-60% 舒适区后居中，目录尾部保留半屏空间 | 260 个标题滚到底时最后一项“落地步骤”中心位于目录高度约 49.8%，不再贴住底边；每帧 chunk 几何读取从 O(n) 收敛到 O(log n) |
 | 首次选区与路径探测 | 未聚焦首开不创建文档末尾 selection；精确 Path 查询使用无异常 `NodeApi.getIf` 快路径 | 避免 selection overlay 跨窗口测量，以及 Enter 越界探测序列化完整 editor |
 
+### 2.9 P6 首屏预览与逐 chunk settle
+
+| 优化 | 实现 | 结果 |
+|------|------|------|
+| 数据库侧首屏预览 | 新增 `GET /api/documents/:id?includeContent=preview`；PostgreSQL 直接从最新 `plateJson` 截取前 24 个顶层块并返回 `totalBlocks`，不传输约 1.38MB 完整 JSON 后再裁剪 | metadata 与 preview 独立并行；目标文档 preview 约 86ms/2.1KB，约 1.8s 出现可阅读正文，preview 失败或延迟不阻塞 Yjs 初始化 |
+| 可编辑正文无损接管 | 真实 `PlateContent` 从开始即挂载并完成 Yjs bootstrap，ready 前仅视觉隐藏；静态 preview 覆盖显示，ready 后原位接管 | 避免重新创建编辑器或将静态片段误当真实正文，不改变协作、选区和数据格式；可编辑仍约 4.0-4.12s，优化的是等待体验而非模型初始化耗时 |
+| 逐 chunk settle | 120ms 停滚后先 hydrate 88px 阅读参考线所在 chunk，再按模型距离在 idle budget 中逐个提交 viewport/overscan；每个 chunk 等待 React mount 后才调度下一个 | 80% 复杂区 settle 从约 318ms 降到约 90ms；20% 无长任务，50% 约 50ms；阅读锚点漂移稳定在约 0.3px |
+| 可取消调度与锚点命中 | wheel/touch/pointer/滚动键取消排队；取消后重新安排 settle，防止永久停在 scrolling preview；锚点优先用 `elementFromPoint().closest()`，线性几何扫描只作回退 | 连续输入可立即拿回主线程，避免取消队列后正文长期保持 preview；锚点主路径不再扫描全部 621 个 chunk |
+
 ## 3. 当前性能边界
 
-1. Yjs 仍需要同步完整文档，Plate/Slate 仍会为完整 value 创建 React element；P2 只减少已提交 DOM，没有分片网络同步和模型解析。
-2. 当前真实目标冷开最大长任务仍约 1.37 秒；完整 Yjs→Slate hydrate 和 React element 首次创建仍在主线程执行。缺 ID 或私有 chunk 元数据不满足约束的区间会局部回退完整 DOM。
+1. Yjs 仍需要同步完整文档，Plate/Slate 仍会为完整 value 创建 React element；24 块静态 preview 只提前可阅读时间，没有分片协作网络同步和模型解析。
+2. 当前真实目标约 1.8 秒可见 preview、约 4.0-4.12 秒可编辑；完整 Yjs→Slate hydrate 和 React element 首次创建仍在主线程执行。缺 ID 或私有 chunk 元数据不满足约束的区间会局部回退完整 DOM。
 3. 窗口模式已用模型索引替代浏览器原生查找；中文 composition 期间暂停定位，命中用非编辑 CSS Highlight 展示，避免抢焦点和唤起选区菜单；小文档仍保留浏览器原生查找。
 4. 指标事件目前只在浏览器内派发，尚未接入服务端时序指标平台；固定 production fixture 与 p50/p95 trace 也尚未纳入仓库自动化。
-5. 占位高度在首次实测前仍是估算值，因此滚动条总长度和绝对百分比可能随测高校正；当前阅读点已由显式 chunk 锚点稳定，preview 换入富文本后的实测漂移低于 0.5px。复杂、review 或估高超过 4,000px 的 chunk 不做提前 hydrate，继续以 120ms 路径换取滚动帧稳定。
-6. 两阶段 hydrate 只优化简单阅读区的可感知等待，不拆分复杂 chunk 自身的 React/DOM 提交；代码块等复杂区在滚动停止后的首次完整绘制仍可能形成约 50-180ms 长任务，后续需要在 Plate chunk 边界或复杂节点内部单独拆分。
+5. 占位高度在首次实测前仍是估算值，因此滚动条总长度和绝对百分比可能随测高校正；当前阅读点已由显式 chunk 锚点稳定，preview 换入富文本后的实测漂移约 0.3px。
+6. 4 块 chunk 和逐项队列显著降低单次提交峰值，但增加 placeholder wrapper 与调度数量；代码块、表格或单个超高顶层块自身仍不能在现有 Plate 边界内继续拆分，80% 复杂区仍观察到约 90ms 长任务。
 
 ### 3.1 为什么成熟云文档的可编辑首屏更快
 
@@ -163,12 +175,12 @@ flowchart LR
 | 阶段 | 工作内容 | 关键验收 |
 |------|----------|----------|
 | P0：测量与基线 | 🚧 已有真实目标与一次性夹具；仍需把固定 fixture 和 p50/p95 trace 纳入仓库测试工具 | 同一 production build 可重复得到稳定 p50/p95、长任务和 DOM 指标 |
-| P1：只读窗口原型 | ✅ 历史 Page 已使用 50 块 idle 渐进绘制；P2 共用的估高/测高经验已验证 | 滚动位置稳定，无累计跳动；挂载 DOM 与文档总块数解耦 |
+| P1：只读窗口原型 | ✅ 历史 Page 已使用 30 块静态 idle 渐进绘制；P2 共用的估高/测高经验已验证 | 滚动位置稳定，无累计跳动；挂载 DOM 与文档总块数解耦 |
 | P2：可编辑窗口 | ✅ 视口/overscan、选区相邻块、IME、Enter/Backspace、粘贴、undo/redo 已完成 | 隔离夹具无数据丢失、无运行错误，旧 chunk 在选区离开后恢复占位 |
 | P3：跨块能力 | ✅ 模型全文查找、选择走廊、评论稳定路径和远程几何刷新已完成 | 真实文档双命中、1,200 块选择复制、双客户端远程光标通过 |
 | P4：复杂块与 DnD | ✅ 活动 reason pin、复杂块释放和 placeholder drop target 已完成 | 复杂 fixture 与单/多块前后拖放验证通过 |
 | P5：灰度与回退 | ✅ 结构化事件、fallback/reveal/invariant 熔断和会话完整 DOM 回退已完成 | 自动降级刷新保持且正文块数不变 |
-| P6：模型与同步分段 | 📝 评估 Yjs 增量缓存、首屏块优先级和 Plate element 分阶段创建 | 首屏 p95 <= 3s，初始化最大长任务 p95 <= 500ms |
+| P6：模型与同步分段 | 🚧 已完成数据库侧 24 块静态预览和编辑 DOM 无损接管；仍需评估 Yjs 增量缓存、首屏块优先级和 Plate element 分阶段创建 | 可阅读首屏已约 1.8s；真正可编辑 p95 <= 3s、初始化最大长任务 p95 <= 500ms 仍未完成 |
 
 当前实现通过受保护适配器从 Plate 53 的私有 chunk children 恢复连续顶层范围，并在 ShareBrain 侧维护 ID/path/height 索引。后续升级 Plate 时必须保留适配单测与 fallback 覆盖率熔断；不能把熔断改成裁剪、改写或降级正文数据。
 
@@ -189,12 +201,12 @@ flowchart LR
 
 | 指标 | P2 实测 | 后续目标 |
 |------|---------|----------|
-| 首屏正文可见 | 真实 2,463 块冷开约 3.4-3.9s，缓存重开约 2.42s | p95 <= 3s |
-| 初始化最大长任务 | 冷开单次约 1.37s | p95 <= 500ms，且无连续秒级阻塞 |
-| 挂载 DOM | 真实目标约 1,575；1,200 块夹具约 621 | 常态 <= 10,000 已满足；继续约束与总块数解耦 |
-| 普通字符输入 | 1,200 块夹具按键到下一帧 p95 约 30.7ms | 浏览器内 p95 <= 50ms，已满足 |
-| Enter | 同夹具 p95 约 93.6ms | 浏览器内 p95 <= 100ms，已满足 |
-| 稳定滚动与大纲 | 90 次 wheel p95 约 33.3ms；简单阅读区提前 36-45ms hydrate，连续滚动热路径不触发提前提交；hydrate 后阅读点漂移低于 0.5px；复杂区最终 hydrate 仍可能有约 50-180ms 长任务；末项位于目录 49.8% | 稳定区段无 >50ms 长任务，帧间隔 p95 <= 33ms，并继续拆分复杂区首次绘制 |
+| 首屏正文可见 | 真实约 2,483 块文档静态 preview 约 1.8s，可编辑约 4.0-4.12s | 可阅读 p95 <= 2s 已接近；可编辑 p95 <= 3s 未完成 |
+| 初始化最大长任务 | 基线初始化主要长任务约 1.385s + 499ms；本轮未拆分完整模型初始化 | p95 <= 500ms，且无连续秒级阻塞 |
+| 挂载 DOM | 真实目标约 2,400；621 chunks/612 placeholders | 常态 <= 10,000 已满足；继续约束与总块数解耦 |
+| 普通字符输入 | 2,000 段夹具按键到下一帧 p95 约 42.7ms | 浏览器内 p95 <= 50ms，已满足 |
+| Enter / Backspace | 同夹具 p95 约 81.6/51.1ms | 浏览器内 p95 <= 100ms，已满足 |
+| 稳定滚动与大纲 | 4 块逐 chunk settle 后 20% 无长任务、50% 约 50ms、80% 约 90ms；锚点漂移约 0.3px | 稳定区段无 >50ms 长任务，帧间隔 p95 <= 33ms，并继续拆分单个复杂顶层块首次绘制 |
 
 ## 5. 明确不采用的替代方案
 
@@ -212,6 +224,7 @@ flowchart LR
 - [加载、输入与目录滚动回归修复](../helloagents/history/2026-07/202607160340_editor_load_input_toc_followup/how.md)
 - [窗口滚动落点稳定修复](../helloagents/history/2026-07/202607160928_editor_scroll_anchor_stability/how.md)
 - [预测式提前 hydrate](../helloagents/history/2026-07/202607161237_editor_predictive_hydration/how.md)
+- [编辑器端到端性能与历史页工程审计](../helloagents/history/2026-07/202607170256_editor_engineering_audit/how.md)
 - [滚动性能优化方案](../helloagents/history/2026-07/202607141156_editor_performance/how.md)
 - [普通输入性能优化方案](../helloagents/history/2026-07/202607150240_editor_input_performance/how.md)
 - [首次加载与 Enter 性能优化方案](../helloagents/history/2026-07/202607150522_editor_load_enter_performance/how.md)

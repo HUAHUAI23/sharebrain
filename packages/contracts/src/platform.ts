@@ -327,6 +327,12 @@ export const documentMetadataSchema = documentSummarySchema.extend({
 });
 export type DocumentMetadata = z.infer<typeof documentMetadataSchema>;
 
+export const documentPreviewSchema = documentMetadataSchema.extend({
+  plateJson: z.array(plateNodeSchema),
+  totalBlocks: z.number().int().nonnegative(),
+});
+export type DocumentPreview = z.infer<typeof documentPreviewSchema>;
+
 export const DOCUMENT_REVIEW_MAP_NAME = "review";
 export const DOCUMENT_REVIEW_VERSION_KEY = "version";
 export const DOCUMENT_REVIEW_VERSION = 2;

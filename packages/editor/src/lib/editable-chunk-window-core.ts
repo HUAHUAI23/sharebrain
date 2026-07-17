@@ -368,6 +368,25 @@ export function selectionPinsEditableChunk(
 
 export type EditableChunkRenderMode = 'content' | 'placeholder' | 'preview';
 
+export function getEditableChunkHydrationOrder<
+  T extends Pick<EditableChunkDescriptor, 'key' | 'startIndex'>,
+>(chunks: readonly T[], primaryKey?: string) {
+  const primaryIndex = chunks.find(
+    (chunk) => chunk.key === primaryKey
+  )?.startIndex;
+
+  return [...chunks].sort((left, right) => {
+    if (primaryIndex !== undefined) {
+      const leftDistance = Math.abs(left.startIndex - primaryIndex);
+      const rightDistance = Math.abs(right.startIndex - primaryIndex);
+
+      if (leftDistance !== rightDistance) return leftDistance - rightDistance;
+    }
+
+    return left.startIndex - right.startIndex;
+  });
+}
+
 export function isEditableChunkEligibleForPrehydration(
   descriptor: Pick<
     EditableChunkDescriptor,

@@ -21,6 +21,7 @@ import {
   type EditableChunkScrollAnchor,
   type EditableChunkSelectionRange,
   getEditableChunkBlockPathAtOffset,
+  getEditableChunkHydrationOrder,
   getEditableChunkRenderMode,
   getEditableChunkScrollAdjustment,
   getEditableChunkScrollAnchor,
@@ -349,6 +350,38 @@ class EditableChunkWindowStore {
     this.prehydratedChunks.add(key);
     this.publishPrehydration(key);
     return true;
+  }
+
+  hydrateForSettle(key: string) {
+    if (
+      !this.scrolling ||
+      !this.chunks.has(key) ||
+      !this.viewportChunks.has(key) ||
+      this.mountedChunks.has(key) ||
+      this.prehydratedChunks.has(key)
+    ) {
+      return false;
+    }
+
+    this.prehydratedChunks.add(key);
+    this.publishPrehydration(key);
+    return true;
+  }
+
+  getViewportHydrationKeys(primaryKey?: string) {
+    const pending = Array.from(this.viewportChunks).flatMap((key) => {
+      const chunk = this.chunks.get(key);
+
+      return chunk &&
+        !this.mountedChunks.has(key) &&
+        !this.prehydratedChunks.has(key)
+        ? [chunk]
+        : [];
+    });
+
+    return getEditableChunkHydrationOrder(pending, primaryKey).map(
+      (chunk) => chunk.key
+    );
   }
 
   cancelPrehydration() {
@@ -794,6 +827,9 @@ export function EditableChunkWindowProvider({
     let prehydrateTimer: number | null = null;
     let prehydrateIdleHandle: number | null = null;
     let prehydrateFrame: number | null = null;
+    let settleHydrationIdleHandle: number | null = null;
+    let settleHydrationFrame: number | null = null;
+    let settleHydrationGeneration = 0;
     let stabilizationFrame: number | null = null;
     let stabilizationFramesRemaining = 0;
     let activeAnchor: EditableChunkScrollAnchorTarget | null = null;
@@ -802,7 +838,10 @@ export function EditableChunkWindowProvider({
     const idleWindow = window as typeof window & {
       cancelIdleCallback?: (handle: number) => void;
       requestIdleCallback?: (
-        callback: (deadline: { timeRemaining: () => number }) => void,
+        callback: (deadline: {
+          didTimeout?: boolean;
+          timeRemaining: () => number;
+        }) => void,
         options?: { timeout: number }
       ) => number;
     };
@@ -841,6 +880,17 @@ export function EditableChunkWindowProvider({
         prehydrateFrame = null;
       }
     };
+    const cancelSettleHydration = () => {
+      settleHydrationGeneration += 1;
+      if (settleHydrationIdleHandle !== null) {
+        idleWindow.cancelIdleCallback?.(settleHydrationIdleHandle);
+        settleHydrationIdleHandle = null;
+      }
+      if (settleHydrationFrame !== null) {
+        cancelAnimationFrame(settleHydrationFrame);
+        settleHydrationFrame = null;
+      }
+    };
     const captureScrollAnchor = (): EditableChunkScrollAnchorTarget | null => {
       let editorElement: HTMLElement | null = null;
 
@@ -858,21 +908,33 @@ export function EditableChunkWindowProvider({
         viewportBottom - 1,
         viewportTop + scrollAnchorViewportOffsetPx
       );
-      const chunks = editorElement.querySelectorAll<HTMLElement>(
-        '[data-editor-chunk-start]'
+      const editorRectangle = editorElement.getBoundingClientRect();
+      const viewportX = Math.min(
+        window.innerWidth - 1,
+        Math.max(0, editorRectangle.left + editorRectangle.width / 2)
       );
-      let anchorElement: HTMLElement | null = null;
+      const pointChunk = document
+        .elementFromPoint(viewportX, viewportY)
+        ?.closest<HTMLElement>('[data-editor-chunk-start]');
+      let anchorElement =
+        pointChunk && editorElement.contains(pointChunk) ? pointChunk : null;
 
-      for (const chunk of chunks) {
-        const rectangle = chunk.getBoundingClientRect();
+      if (!anchorElement) {
+        const chunks = editorElement.querySelectorAll<HTMLElement>(
+          '[data-editor-chunk-start]'
+        );
 
-        if (rectangle.bottom > viewportY) {
-          anchorElement = chunk;
-          break;
+        for (const chunk of chunks) {
+          const rectangle = chunk.getBoundingClientRect();
+
+          if (rectangle.bottom > viewportY) {
+            anchorElement = chunk;
+            break;
+          }
         }
-      }
 
-      if (!anchorElement) anchorElement = chunks.item(chunks.length - 1);
+        if (!anchorElement) anchorElement = chunks.item(chunks.length - 1);
+      }
       if (!anchorElement) return null;
 
       const anchor = getEditableChunkScrollAnchor(
@@ -983,9 +1045,101 @@ export function EditableChunkWindowProvider({
       settleTimer = null;
       cancelPrehydrateSchedule();
       const anchor = activeAnchor ?? captureScrollAnchor();
+      const primaryKey = anchor?.element.dataset.editorChunkKey;
+      const primaryReady = Boolean(
+        primaryKey &&
+          (store.isMounted(primaryKey) || store.isPrehydrated(primaryKey))
+      );
+      const queue = store.getViewportHydrationKeys(primaryKey);
 
-      store.setScrolling(false);
+      cancelSettleHydration();
       startStabilization(anchor);
+      if (queue.length === 0) {
+        store.setScrolling(false);
+        return;
+      }
+
+      const generation = settleHydrationGeneration;
+      const finish = () => {
+        if (
+          generation !== settleHydrationGeneration ||
+          !store.getScrolling()
+        ) {
+          return;
+        }
+        store.setScrolling(false);
+      };
+      const hydrateNext = () => {
+        if (
+          generation !== settleHydrationGeneration ||
+          !store.getScrolling()
+        ) {
+          return;
+        }
+
+        const key = queue.shift();
+        if (!key) {
+          finish();
+          return;
+        }
+        if (!store.hydrateForSettle(key)) {
+          scheduleNext(false);
+          return;
+        }
+
+        let framesRemaining = 18;
+        const waitForCommit = () => {
+          settleHydrationFrame = null;
+          if (
+            generation !== settleHydrationGeneration ||
+            !store.getScrolling()
+          ) {
+            return;
+          }
+          if (store.isMounted(key) || framesRemaining <= 0) {
+            scheduleNext(false);
+            return;
+          }
+
+          framesRemaining -= 1;
+          settleHydrationFrame = requestAnimationFrame(waitForCommit);
+        };
+        settleHydrationFrame = requestAnimationFrame(waitForCommit);
+      };
+      const scheduleNext = (immediate: boolean) => {
+        if (
+          generation !== settleHydrationGeneration ||
+          !store.getScrolling()
+        ) {
+          return;
+        }
+        if (immediate) {
+          hydrateNext();
+          return;
+        }
+
+        if (idleWindow.requestIdleCallback) {
+          settleHydrationIdleHandle = idleWindow.requestIdleCallback(
+            (deadline) => {
+              settleHydrationIdleHandle = null;
+              if (!deadline.didTimeout && deadline.timeRemaining() < 6) {
+                scheduleNext(false);
+                return;
+              }
+              hydrateNext();
+            },
+            { timeout: 120 }
+          );
+          return;
+        }
+
+        settleHydrationFrame = requestAnimationFrame(() => {
+          settleHydrationFrame = null;
+          hydrateNext();
+        });
+      };
+
+      scheduleNext(!primaryReady);
     };
     const onScroll = () => {
       if (activeAnchor) {
@@ -1008,8 +1162,13 @@ export function EditableChunkWindowProvider({
     };
     const cancelForUserScroll = () => {
       cancelPrehydrateSchedule();
+      cancelSettleHydration();
       cancelStabilization();
       store.cancelPrehydration();
+      if (store.getScrolling()) {
+        if (settleTimer !== null) window.clearTimeout(settleTimer);
+        settleTimer = window.setTimeout(settle, scrollSettleDelayMs);
+      }
     };
     const cancelForKeyboardScroll = (event: KeyboardEvent) => {
       if (
@@ -1050,6 +1209,7 @@ export function EditableChunkWindowProvider({
       window.removeEventListener('keydown', cancelForKeyboardScroll, true);
       if (settleTimer !== null) window.clearTimeout(settleTimer);
       cancelPrehydrateSchedule();
+      cancelSettleHydration();
       cancelStabilization();
       store.setScrolling(false);
     };

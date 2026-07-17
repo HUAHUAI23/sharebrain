@@ -30,6 +30,7 @@ import { IndexerService } from "../indexer/indexer.service";
 import {
   serializeDocumentDetail,
   serializeDocumentMetadata,
+  serializeDocumentPreview,
   serializeDocumentSummary,
 } from "../shared/serializers";
 import { appendSortKey } from "../shared/sort-key";
@@ -38,6 +39,7 @@ import type { DatabaseClient } from "@sharebrain/db";
 import type { ServerEnv } from "@sharebrain/config";
 
 const emptyPlateJson = [{ type: "p", children: [{ text: "" }] }];
+const documentPreviewBlockLimit = 24;
 
 function toIsoTimestamp(value: Date | string) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -157,6 +159,44 @@ export class DocumentsService {
   async getMetadata(auth: AuthContext, documentId: string) {
     return serializeDocumentMetadata(
       await this.ensureDocument(auth, documentId),
+    );
+  }
+
+  async getPreview(auth: AuthContext, documentId: string) {
+    const document = await this.ensureDocument(auth, documentId);
+    const [version] = await this.db
+      .select({
+        plateJson: sql<unknown[]>`
+          coalesce(
+            (
+              select jsonb_agg(item.value order by item.ordinality)
+              from jsonb_array_elements(${documentVersions.plateJson})
+                with ordinality as item(value, ordinality)
+              where item.ordinality <= ${documentPreviewBlockLimit}
+            ),
+            '[]'::jsonb
+          )
+        `,
+        totalBlocks: sql<number>`jsonb_array_length(${documentVersions.plateJson})`,
+      })
+      .from(documentVersions)
+      .where(
+        and(
+          eq(documentVersions.tenantId, auth.tenantId),
+          eq(documentVersions.documentId, document.id),
+        ),
+      )
+      .orderBy(desc(documentVersions.versionNo))
+      .limit(1);
+    const value = Array.isArray(version?.plateJson) ? version.plateJson : emptyPlateJson;
+    const totalBlocks = Number(version?.totalBlocks ?? 0);
+
+    return serializeDocumentPreview(
+      document,
+      value,
+      Number.isSafeInteger(totalBlocks) && totalBlocks >= 0
+        ? totalBlocks
+        : value.length,
     );
   }
 
