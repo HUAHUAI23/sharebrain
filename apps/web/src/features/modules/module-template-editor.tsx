@@ -1,3 +1,4 @@
+// 编辑单个初始模块的身份信息、启用状态与时间线字段。
 import { m } from "@sharebrain/i18n";
 import {
   AlertDialog,
@@ -14,25 +15,26 @@ import { Button } from "@sharebrain/ui/components/button";
 import { NotionEmpty, NotionIcon, NotionList, NotionListRow, NotionText } from "@sharebrain/ui/components/notion";
 import {
   Braces,
+  CalendarClock,
   CalendarDays,
   ChevronDown,
   ChevronUp,
-  Clock3,
   GripVertical,
   Hash,
   Link2,
-  ListFilter,
+  ListChecks,
   Plus,
   RotateCcw,
-  TextCursorInput,
-  ToggleLeft,
+  SquareCheckBig,
   Trash2,
+  Type,
   UserRound,
 } from "lucide-react";
 import { useState } from "react";
 
 import { FieldEditorSheet, getDefaultSummary } from "./field-editor-sheet";
 import { getFieldTypeLabel, getKindLabel } from "./module-template-utils";
+import { getModuleTemplateVisual } from "./module-template-visual";
 import { TemplateIdentityForm } from "./template-identity-form";
 
 import type { ModuleFieldType, ModuleTemplate, ModuleTemplateField, TenantMember } from "@sharebrain/contracts";
@@ -58,12 +60,12 @@ type ModuleTemplateEditorProps = {
 function fieldIcon(type: ModuleFieldType) {
   if (type === "number") return <Hash />;
   if (type === "date") return <CalendarDays />;
-  if (type === "datetime") return <Clock3 />;
-  if (type === "boolean") return <ToggleLeft />;
+  if (type === "datetime") return <CalendarClock />;
+  if (type === "boolean") return <SquareCheckBig />;
   if (type === "url") return <Link2 />;
-  if (type === "select") return <ListFilter />;
+  if (type === "select") return <ListChecks />;
   if (type === "user") return <UserRound />;
-  if (type === "text") return <TextCursorInput />;
+  if (type === "text") return <Type />;
   return <Braces />;
 }
 
@@ -88,25 +90,31 @@ export function ModuleTemplateEditor({
   const [draggedFieldId, setDraggedFieldId] = useState<string>();
 
   if (!template) return <NotionEmpty className="p-12">{m.template_select_empty()}</NotionEmpty>;
+  const { Icon: TemplateIcon, tone } = getModuleTemplateVisual(template);
 
   return (
-    <section className="min-w-0">
-      <div className="flex items-start justify-between gap-4 pb-2">
-        <div className="grid min-w-0 gap-1">
-          <div className="flex items-center gap-2">
-            <h2 className="m-0 truncate text-lg font-semibold tracking-normal">{template.name}</h2>
-            {template.isSystemFixed ? (
-              <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                {m.template_fixed_badge()}
-              </span>
-            ) : null}
+    <section className="min-w-0 max-w-[760px] pb-16">
+      <header className="flex items-center justify-between gap-5 pb-6">
+        <div className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] items-center gap-3.5">
+          <span className={`flex size-11 items-center justify-center rounded-lg ${tone}`}>
+            <TemplateIcon className="size-5" />
+          </span>
+          <div className="grid min-w-0 gap-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="m-0 truncate text-xl leading-tight font-semibold tracking-normal">{template.name}</h2>
+              {template.isSystemFixed ? (
+                <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  {m.template_fixed_badge()}
+                </span>
+              ) : null}
+            </div>
+            <p className="m-0 text-xs text-muted-foreground">{getKindLabel(template.kind)}</p>
           </div>
-          <p className="m-0 text-sm text-muted-foreground">{getKindLabel(template.kind)}</p>
         </div>
         {template.isSystemFixed ? (
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="sm">
+              <Button variant="outline" size="sm">
                 <RotateCcw />
                 {m.template_restore()}
               </Button>
@@ -125,7 +133,12 @@ export function ModuleTemplateEditor({
         ) : (
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label={m.common_delete_named({ name: template.name })}>
+              <Button
+                className="text-muted-foreground hover:text-destructive"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={m.common_delete_named({ name: template.name })}
+              >
                 <Trash2 />
               </Button>
             </AlertDialogTrigger>
@@ -143,7 +156,7 @@ export function ModuleTemplateEditor({
             </AlertDialogContent>
           </AlertDialog>
         )}
-      </div>
+      </header>
 
       <TemplateIdentityForm
         key={template.id}
@@ -155,11 +168,11 @@ export function ModuleTemplateEditor({
       />
 
       {template.kind === "timeline" ? (
-        <section className="grid gap-3 pt-4 pb-6">
+        <section className="grid gap-4 border-t border-border-subtle pt-6 pb-6">
           <div className="flex items-center justify-between gap-4">
-            <div className="grid gap-px">
-              <h3 className="m-0 text-sm font-semibold">{m.template_fields_title()}</h3>
-              <p className="m-0 text-xs text-muted-foreground">{m.template_fields_description()}</p>
+            <div className="grid gap-1">
+              <h3 className="m-0 text-[15px] font-semibold">{m.template_fields_title()}</h3>
+              <p className="m-0 text-[12px] leading-relaxed text-muted-foreground">{m.template_fields_description()}</p>
             </div>
             <Button
               size="sm"
@@ -175,13 +188,13 @@ export function ModuleTemplateEditor({
             </Button>
           </div>
           {template.fields.length ? (
-            <NotionList className="divide-y divide-border-subtle">
+            <NotionList className="gap-0 overflow-hidden rounded-lg border border-border-subtle bg-background divide-y divide-border-subtle">
               {template.fields.map((field, index) => {
                 const defaultSummary = getDefaultSummary(field);
                 return (
                   <NotionListRow
                     key={field.id}
-                    className="group grid-cols-[20px_minmax(0,1fr)_96px] rounded-none px-1 py-1.5 hover:bg-accent"
+                    className="group min-h-14 grid-cols-[18px_minmax(0,1fr)_82px] rounded-none px-3 py-1.5 hover:bg-accent"
                     draggable
                     onDragStart={() => setDraggedFieldId(field.id)}
                     onDragOver={(event) => event.preventDefault()}
@@ -195,17 +208,17 @@ export function ModuleTemplateEditor({
                       setDraggedFieldId(undefined);
                     }}
                   >
-                    <GripVertical className="size-4 cursor-grab text-muted-foreground/35 transition-colors group-hover:text-muted-foreground/60" />
+                    <GripVertical className="size-3.5 cursor-grab text-muted-foreground/30 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-[900px]:opacity-100" />
                     <button
                       type="button"
-                      className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] items-center gap-2 border-0 bg-transparent p-0 text-left"
+                      className="grid min-w-0 grid-cols-[32px_minmax(0,1fr)] items-center gap-2.5 border-0 bg-transparent p-0 text-left"
                       onClick={() => {
                         onBeginFieldEdit();
                         setEditingField(field);
                         setFieldSheetOpen(true);
                       }}
                     >
-                      <NotionIcon className="bg-transparent text-muted-foreground">
+                      <NotionIcon className="size-8 bg-muted/60 text-muted-foreground">
                         {fieldIcon(field.type)}
                       </NotionIcon>
                       <NotionText
@@ -213,11 +226,11 @@ export function ModuleTemplateEditor({
                         description={`${getFieldTypeLabel(field.type)}${defaultSummary ? ` · ${defaultSummary}` : ""}`}
                       />
                     </button>
-                    <div className="flex items-center justify-end opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-[800px]:opacity-100">
+                    <div className="flex items-center justify-end opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-[900px]:opacity-100">
                         <Button
                           type="button"
                           variant="ghost"
-                          size="icon"
+                          size="icon-xs"
                           aria-label={m.common_move_up()}
                           disabled={isSavingField || index === 0}
                           onClick={() => {
@@ -231,7 +244,7 @@ export function ModuleTemplateEditor({
                         <Button
                           type="button"
                           variant="ghost"
-                          size="icon"
+                          size="icon-xs"
                           aria-label={m.common_move_down()}
                           disabled={isSavingField || index === template.fields.length - 1}
                           onClick={() => {
@@ -247,7 +260,7 @@ export function ModuleTemplateEditor({
                             <Button
                               type="button"
                               variant="ghost"
-                              size="icon"
+                              size="icon-xs"
                               aria-label={m.common_delete_named({ name: field.label })}
                               disabled={isSavingField}
                             >
@@ -276,11 +289,13 @@ export function ModuleTemplateEditor({
               })}
             </NotionList>
           ) : (
-            <NotionEmpty className="py-8">{m.template_no_fields()}</NotionEmpty>
+            <NotionEmpty className="flex min-h-28 items-center justify-center rounded-md border border-dashed border-border-subtle bg-muted/20 text-sm">
+              {m.template_no_fields()}
+            </NotionEmpty>
           )}
         </section>
       ) : (
-        <NotionEmpty className="border-t border-border py-10">{m.template_collection_fields_note()}</NotionEmpty>
+        <NotionEmpty className="border-t border-border-subtle py-10 text-sm">{m.template_collection_fields_note()}</NotionEmpty>
       )}
 
       <FieldEditorSheet

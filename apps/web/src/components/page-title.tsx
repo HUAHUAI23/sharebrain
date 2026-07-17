@@ -1,29 +1,25 @@
+// 渲染工作台内容页统一的标题与说明层级。
 import type { ReactNode } from "react";
 
-import { NotionIcon } from "@sharebrain/ui/components/notion";
 import { cn } from "@sharebrain/ui/lib/utils";
 
 type PageTitleProps = {
-  icon?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
   className?: string;
 };
 
-export function PageTitle({ icon, title, description, className }: PageTitleProps) {
+export function PageTitle({ title, description, className }: PageTitleProps) {
   return (
-    <header className={cn("mb-6 grid", icon ? "gap-3.5" : "gap-0", className)}>
-      {icon ? <NotionIcon size="lg">{icon}</NotionIcon> : null}
-      <div>
-        <h1 className="m-0 text-4xl font-bold leading-tight tracking-normal text-foreground max-[560px]:text-3xl">
-          {title}
-        </h1>
-        {description ? (
-          <p className="mt-1.5 mb-0 whitespace-normal text-muted-foreground text-xs leading-snug">
-            {description}
-          </p>
-        ) : null}
-      </div>
+    <header className={cn("mb-7 grid gap-1.5", className)}>
+      <h1 className="m-0 text-[28px] leading-tight font-semibold tracking-normal text-foreground max-[560px]:text-2xl">
+        {title}
+      </h1>
+      {description ? (
+        <p className="m-0 max-w-2xl whitespace-normal text-[13px] leading-relaxed text-muted-foreground">
+          {description}
+        </p>
+      ) : null}
     </header>
   );
 }

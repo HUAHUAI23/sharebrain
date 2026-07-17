@@ -49,13 +49,13 @@ export function TemplateIdentityForm({
 
   return (
     <form
-      className="grid max-w-3xl gap-5 py-6"
+      className="grid gap-6 pb-7"
       onSubmit={(event) => {
         event.preventDefault();
         void form.handleSubmit();
       }}
     >
-      <FieldGroup className="gap-4">
+      <FieldGroup className="gap-5">
         <form.Field
           name="name"
           validators={{ onChange: ({ value }) => (!value.trim() ? m.template_name_label() : undefined) }}
@@ -65,6 +65,7 @@ export function TemplateIdentityForm({
               <FieldLabel htmlFor={field.name}>{m.template_name_label()}</FieldLabel>
               <Input
                 id={field.name}
+                className="h-9 border-border bg-background shadow-xs hover:bg-background"
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => {
@@ -84,7 +85,7 @@ export function TemplateIdentityForm({
               <FieldLabel htmlFor={field.name}>{m.template_description_label()}</FieldLabel>
               <Textarea
                 id={field.name}
-                className="min-h-20"
+                className="min-h-24 resize-y bg-background leading-relaxed shadow-xs"
                 value={field.state.value}
                 onChange={(event) => {
                   onEdit();
@@ -96,10 +97,10 @@ export function TemplateIdentityForm({
         </form.Field>
         <form.Field name="includedInNewProjects">
           {(field) => (
-            <div className="flex items-center justify-between gap-4 rounded-sm bg-muted/50 px-3 py-2.5">
-              <div className="grid gap-px">
+            <div className="flex min-h-16 items-center justify-between gap-5 rounded-lg bg-muted/40 px-3.5 py-3">
+              <div className="grid gap-1">
                 <span className="text-sm font-medium">{m.module_included()}</span>
-                <span className="text-xs text-muted-foreground">{m.module_settings_scope()}</span>
+                <span className="text-[12px] leading-relaxed text-muted-foreground">{m.module_settings_scope()}</span>
               </div>
               <Switch
                 checked={field.state.value}
@@ -115,12 +116,16 @@ export function TemplateIdentityForm({
       </FieldGroup>
       {error ? <p className="m-0 text-sm text-destructive">{error}</p> : null}
       <form.Subscribe selector={(state) => [state.canSubmit, state.isDirty]}>
-        {([canSubmit, isDirty]) => (
-          <Button className="ml-auto w-fit" size="sm" type="submit" disabled={!canSubmit || !isDirty || isUpdating}>
-            <Check />
-            {m.common_save()}
-          </Button>
-        )}
+        {([canSubmit, isDirty]) =>
+          isDirty ? (
+            <div className="flex justify-end">
+              <Button size="sm" type="submit" disabled={!canSubmit || isUpdating}>
+                <Check />
+                {m.common_save()}
+              </Button>
+            </div>
+          ) : null
+        }
       </form.Subscribe>
     </form>
   );

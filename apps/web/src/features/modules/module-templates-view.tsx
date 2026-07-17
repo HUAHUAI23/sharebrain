@@ -1,3 +1,4 @@
+// 组合新项目模块配置的导航、编辑工作区与创建流程。
 import { m } from "@sharebrain/i18n";
 import { Button } from "@sharebrain/ui/components/button";
 import {
@@ -19,26 +20,21 @@ import { NotionEmpty, NotionIcon, NotionList, NotionListRow, NotionText, NotionT
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@sharebrain/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowDown, ArrowLeft, ArrowUp, BookOpenText, FileText, GripVertical, LayoutList, LockKeyhole, MoreHorizontal, Plus } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, GripVertical, MoreHorizontal, Plus } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { PageTitle } from "../../components/page-title";
 import { ApiClientError, apiRequest, queryKeys } from "../../lib/api-client";
 import { AccountMenu } from "../account/account-menu";
 import { ModuleTemplateEditor } from "./module-template-editor";
 import type { FieldPayload, TemplateUpdatePayload } from "./module-template-editor.types";
 import { getKindLabel, moduleKinds, slugifyKey } from "./module-template-utils";
+import { getModuleTemplateVisual } from "./module-template-visual";
 
 import type { ModuleKind, ModuleTemplate, TenantMember } from "@sharebrain/contracts";
 
 type ModuleTemplatesViewProps = {
   selectedTemplateId?: string;
 };
-
-function templateIcon(template: ModuleTemplate) {
-  if (template.kind === "timeline") return <LayoutList />;
-  return template.key === "knowledge-base" ? <BookOpenText /> : <FileText />;
-}
 
 function TemplateListSection({
   title,
@@ -58,69 +54,70 @@ function TemplateListSection({
   const [draggedId, setDraggedId] = useState<string>();
   if (!items.length) return null;
   return (
-    <div className="grid gap-1">
-      <div className="px-2 text-xs font-medium text-muted-foreground">{title}</div>
-      <NotionList>
-        {items.map((template, index) => (
-          <NotionListRow
-            key={template.id}
-            active={selectedId === template.id}
-            className="group grid-cols-[18px_minmax(0,1fr)_28px] px-1 py-1 hover:bg-accent"
-            draggable
-            onDragStart={() => setDraggedId(template.id)}
-            onDragEnd={() => setDraggedId(undefined)}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={() => {
-              if (draggedId && draggedId !== template.id) onDropTemplate(draggedId, template.id);
-              setDraggedId(undefined);
-            }}
-          >
-            <GripVertical className="size-4 cursor-grab text-muted-foreground/50" />
-            <button
-              type="button"
-              className={`grid min-w-0 items-center gap-2 border-0 bg-transparent p-0 text-left ${
-                template.isSystemFixed
-                  ? "grid-cols-[28px_minmax(0,1fr)_16px]"
-                  : "grid-cols-[28px_minmax(0,1fr)]"
-              }`}
-              onClick={() => onSelect(template.id)}
+    <div className="grid gap-1.5">
+      <div className="px-2.5 text-[11px] font-semibold text-muted-foreground">{title}</div>
+      <NotionList className="gap-1">
+        {items.map((template, index) => {
+          const { Icon, tone } = getModuleTemplateVisual(template);
+          return (
+            <NotionListRow
+              key={template.id}
+              active={selectedId === template.id}
+              className="group min-h-12 grid-cols-[16px_minmax(0,1fr)_28px] px-2 py-1.5 hover:bg-background/80 data-[active=true]:bg-background data-[active=true]:shadow-xs"
+              draggable
+              onDragStart={() => setDraggedId(template.id)}
+              onDragEnd={() => setDraggedId(undefined)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() => {
+                if (draggedId && draggedId !== template.id) onDropTemplate(draggedId, template.id);
+                setDraggedId(undefined);
+              }}
             >
-              <NotionIcon className="bg-transparent text-muted-foreground">
-                {templateIcon(template)}
-              </NotionIcon>
-              <NotionText title={template.name} description={getKindLabel(template.kind)} />
-              {template.isSystemFixed ? (
-                <LockKeyhole className="size-3.5 text-muted-foreground" />
-              ) : null}
-            </button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  aria-label={m.common_reorder()}
-                >
-                  <MoreHorizontal />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="min-w-36 bg-popover" align="end">
-                <DropdownMenuItem disabled={index === 0} onSelect={() => onMoveTemplate(template.id, -1)}>
-                  <ArrowUp />
-                  {m.common_move_up()}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={index === items.length - 1}
-                  onSelect={() => onMoveTemplate(template.id, 1)}
-                >
-                  <ArrowDown />
-                  {m.common_move_down()}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </NotionListRow>
-        ))}
+              <GripVertical className="size-3.5 cursor-grab text-muted-foreground/35 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-[900px]:opacity-100" />
+              <button
+                type="button"
+                className="grid min-w-0 grid-cols-[32px_minmax(0,1fr)] items-center gap-2.5 border-0 bg-transparent p-0 text-left"
+                onClick={() => onSelect(template.id)}
+              >
+                <NotionIcon className={`size-8 ${tone}`}>
+                  <Icon className="size-[17px]" />
+                </NotionIcon>
+                <NotionText
+                  title={template.name}
+                  description={getKindLabel(template.kind)}
+                  titleClassName="text-[13px]"
+                  descriptionClassName="text-[11px]"
+                />
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-[900px]:opacity-100"
+                    aria-label={m.common_reorder()}
+                  >
+                    <MoreHorizontal />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="min-w-36 bg-popover" align="end">
+                  <DropdownMenuItem disabled={index === 0} onSelect={() => onMoveTemplate(template.id, -1)}>
+                    <ArrowUp />
+                    {m.common_move_up()}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={index === items.length - 1}
+                    onSelect={() => onMoveTemplate(template.id, 1)}
+                  >
+                    <ArrowDown />
+                    {m.common_move_down()}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </NotionListRow>
+          );
+        })}
       </NotionList>
     </div>
   );
@@ -294,15 +291,19 @@ export function ModuleTemplatesView({ selectedTemplateId }: ModuleTemplatesViewP
         <AccountMenu />
       </NotionToolbar>
 
-      <section className="mx-auto grid w-[min(1200px,calc(100vw-32px))] gap-6 py-7 max-[640px]:w-[calc(100vw-24px)] max-[640px]:py-5">
-        <div className="flex items-end justify-between gap-4">
-          <PageTitle
-            className="mb-0"
-            title={m.module_templates_title()}
-            description={m.module_templates_description()}
-          />
+      <section className="mx-auto grid w-[min(1120px,calc(100vw-40px))] gap-7 py-8 max-[640px]:w-[calc(100vw-24px)] max-[640px]:gap-5 max-[640px]:py-5">
+        <header className="flex items-start justify-between gap-6 max-[640px]:items-center">
+          <div className="grid max-w-2xl gap-1.5">
+            <h1 className="m-0 text-[28px] leading-tight font-semibold text-foreground max-[560px]:text-2xl">
+              {m.module_templates_title()}
+            </h1>
+            <p className="m-0 text-[13px] leading-relaxed text-muted-foreground max-[640px]:hidden">
+              {m.module_templates_description()}
+            </p>
+          </div>
           <Button
             size="sm"
+            className="mt-0.5"
             onClick={() => {
               setCreateError(null);
               setCreateOpen(true);
@@ -310,9 +311,9 @@ export function ModuleTemplatesView({ selectedTemplateId }: ModuleTemplatesViewP
           >
             <Plus />{m.module_new()}
           </Button>
-        </div>
-        <div className="grid min-h-[560px] grid-cols-[248px_minmax(0,1fr)] gap-10 max-[800px]:grid-cols-1 max-[800px]:gap-7">
-          <aside className="grid content-start gap-6 max-[800px]:max-h-72 max-[800px]:overflow-y-auto max-[800px]:pb-2">
+        </header>
+        <div className="grid min-h-[600px] grid-cols-[280px_minmax(0,1fr)] items-start gap-10 border-t border-border-subtle pt-6 max-[900px]:grid-cols-1 max-[900px]:gap-6">
+          <aside className="grid content-start gap-6 rounded-lg bg-muted/40 p-3 max-[900px]:max-h-80 max-[900px]:overflow-y-auto">
             {templates.isLoading ? <NotionEmpty>{m.module_templates_loading()}</NotionEmpty> : null}
             <TemplateListSection
               title={m.template_fixed_section()}

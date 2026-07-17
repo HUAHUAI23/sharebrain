@@ -1,8 +1,9 @@
+// 展示文档集合模块的页面列表与轻量创建入口。
 import { m } from "@sharebrain/i18n";
 import { NotionCreateRow } from "@sharebrain/ui/components/notion-create-row";
-import { NotionEmpty, NotionList, NotionListRow } from "@sharebrain/ui/components/notion";
+import { NotionEmpty, NotionIcon, NotionList, NotionListRow } from "@sharebrain/ui/components/notion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpenText, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
 import { useState } from "react";
 
 import { PageTitle } from "../../components/page-title";
@@ -39,29 +40,33 @@ export function CollectionModule({ projectId, moduleId, module, onNavigate }: Mo
   return (
     <div className="module-page">
       <PageTitle
-        icon={<BookOpenText size={24} />}
         title={module?.name ?? m.module_collection_label()}
         description={m.module_collection_description()}
       />
-      <NotionList>
+      <NotionList className="gap-0 overflow-hidden rounded-lg border border-border-subtle bg-background divide-y divide-border-subtle">
         {(documents.data?.items ?? []).length > 0 ? (
           (documents.data?.items ?? []).map((document) => (
             <NotionListRow
               asChild
               key={document.id}
-              className="grid-cols-[18px_minmax(0,1fr)] px-2 py-1.5"
+              className="min-h-12 grid-cols-[32px_minmax(0,1fr)] rounded-none px-3 py-1.5"
             >
               <button type="button" onClick={() => onNavigate({ type: "document", projectId, moduleId, documentId: document.id })}>
-                <FileText size={15} />
-                <span className="truncate">{document.title}</span>
+                <NotionIcon className="size-8 bg-muted/60 text-muted-foreground">
+                  <FileText className="size-4" />
+                </NotionIcon>
+                <span className="truncate text-[13px] font-medium">{document.title}</span>
               </button>
             </NotionListRow>
           ))
         ) : (
-          <NotionEmpty>{m.module_no_documents()}</NotionEmpty>
+          <NotionEmpty className="flex min-h-32 items-center justify-center px-4 py-10 text-sm">
+            {m.module_no_documents()}
+          </NotionEmpty>
         )}
       </NotionList>
       <NotionCreateRow
+        className="mt-2 min-h-10 px-2 py-1.5"
         value={title}
         onValueChange={(value) => {
           setTitle(value);

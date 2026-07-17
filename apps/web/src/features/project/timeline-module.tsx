@@ -1,8 +1,9 @@
+// 展示时间线记录、属性摘要与记录创建入口。
 import { m } from "@sharebrain/i18n";
 import { Button } from "@sharebrain/ui/components/button";
 import { NotionEmpty } from "@sharebrain/ui/components/notion";
 import { useQuery } from "@tanstack/react-query";
-import { ListTree, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 
 import { PageTitle } from "../../components/page-title";
@@ -26,20 +27,24 @@ export function TimelineModule({ projectId, moduleId, module, onNavigate }: Modu
     queryFn: () => apiRequest<{ items: TenantMember[] }>("/api/members"),
     enabled: module?.fields.some((field) => field.type === "user") ?? false,
   });
+  const recordItems = records.data?.items ?? [];
 
   return (
     <div className="module-page">
-      <div className="module-header flex items-end justify-between gap-4">
+      <div className="module-header flex items-start justify-between gap-6 border-b border-border-subtle pb-6">
         <PageTitle
-          icon={<ListTree size={24} />}
+          className="mb-0"
           title={module?.name ?? m.module_timeline_label()}
           description={m.module_timeline_description()}
         />
-        <Button size="sm" onClick={() => setComposerOpen(true)}><Plus />{m.timeline_create_placeholder()}</Button>
+        <Button className="mt-0.5 shrink-0" size="sm" onClick={() => setComposerOpen(true)}>
+          <Plus />
+          {m.timeline_create_placeholder()}
+        </Button>
       </div>
-      <div className="timeline-list mt-6">
-        {(records.data?.items ?? []).length > 0 ? (
-          (records.data?.items ?? []).map((record) => {
+      <div className={recordItems.length ? "timeline-list mt-7" : ""}>
+        {recordItems.length > 0 ? (
+          recordItems.map((record) => {
             const properties = (module?.fields ?? []).flatMap((field) => {
                   const displayValue = formatModuleFieldValue(field, record.values[field.id], members.data?.items);
               return displayValue ? [{ field, displayValue }] : [];
@@ -64,7 +69,9 @@ export function TimelineModule({ projectId, moduleId, module, onNavigate }: Modu
             );
           })
         ) : (
-          <NotionEmpty>{m.module_no_records()}</NotionEmpty>
+          <NotionEmpty className="flex min-h-32 items-center justify-center border-b border-border-subtle px-4 py-10 text-sm">
+            {m.module_no_records()}
+          </NotionEmpty>
         )}
       </div>
       <RecordComposerSheet
