@@ -31,7 +31,7 @@ ARG WEB_PUBLIC_API_BASE_URL=""
 ARG WEB_PUBLIC_COLLAB_WS_URL="ws://localhost:3002"
 ENV WEB_PUBLIC_API_BASE_URL=${WEB_PUBLIC_API_BASE_URL}
 ENV WEB_PUBLIC_COLLAB_WS_URL=${WEB_PUBLIC_COLLAB_WS_URL}
-RUN bun --filter @sharebrain/web build
+RUN bunx turbo build --filter=@sharebrain/web
 
 FROM source AS api-build
 RUN mkdir -p /out \
