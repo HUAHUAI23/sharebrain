@@ -66,24 +66,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Resolve image and build configuration
+      - name: Resolve image
         id: config
         shell: bash
         env:
           SERVICE: ${{ matrix.service }}
-          WEB_PUBLIC_API_BASE_URL: ${{ vars.WEB_PUBLIC_API_BASE_URL }}
-          WEB_PUBLIC_COLLAB_WS_URL: ${{ vars.WEB_PUBLIC_COLLAB_WS_URL }}
         run: |
           repository="${GITHUB_REPOSITORY,,}"
           echo "image=ghcr.io/${repository}-${SERVICE}" >> "$GITHUB_OUTPUT"
-          {
-            echo "build-args<<EOF"
-            if [[ "$SERVICE" == "web" ]]; then
-              echo "WEB_PUBLIC_API_BASE_URL=${WEB_PUBLIC_API_BASE_URL}"
-              echo "WEB_PUBLIC_COLLAB_WS_URL=${WEB_PUBLIC_COLLAB_WS_URL:-ws://localhost:3002}"
-            fi
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
@@ -127,7 +117,6 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          build-args: ${{ steps.config.outputs.build-args }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
           provenance: mode=max

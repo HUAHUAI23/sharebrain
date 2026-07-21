@@ -40,12 +40,13 @@ bun run db:seed
 - Collab: `ws://localhost:3002`
 
 Vite 使用 `strictPort`，端口被占用时直接失败。不要依赖端口自动漂移。
-Web 默认使用同源 `/api` 请求后端，开发期由 Vite proxy 转发到 `http://localhost:3001`；只有跨域部署或调试时才设置 `WEB_PUBLIC_API_BASE_URL` 覆盖。
+Web 默认使用同源 `/api` 请求后端和同源 `/collab` 建立 WebSocket，开发期由 Vite proxy 分别转发到 `http://localhost:3001` 与 `ws://localhost:3002`；只有跨域部署或调试时才使用 `WEB_PUBLIC_API_BASE_URL`、`WEB_PUBLIC_COLLAB_WS_URL` 覆盖。
 
 ## 容器构建与 GHCR
 
 - 根 `Dockerfile` 使用 `web/api/collab/worker` 多目标构建；本地验证示例为 `docker build --target api -t sharebrain-api:local .`。
-- Web target 支持公开 build arguments `WEB_PUBLIC_API_BASE_URL` 与 `WEB_PUBLIC_COLLAB_WS_URL`；服务端数据库、S3、认证和 AI 密钥只能在容器运行时注入，不得写入 build argument、镜像层或 GitHub repository variables。
+- Web target 不接收部署相关 build arguments；Nginx entrypoint 只将白名单 `WEB_PUBLIC_*` 环境变量生成到 `/tmp/sharebrain-runtime-config.json`，并通过 `GET /runtime-config.json` 以 `no-store` 提供。服务端数据库、S3、认证和 AI 密钥只能注入对应服务端容器，禁止进入 Web 运行时配置、镜像层或 GitHub repository variables。
+- 同一源码提交的 Web 镜像必须跨环境复用；修改 Web ConfigMap/env 后滚动重启 Pod，不得按域名重建或覆盖同一个 SHA 标签的制品。
 - `.github/workflows/container-images.yml` 在 Pull Request 中只构建不推送；main、`v*.*.*` 标签和手动运行发布到 GHCR。
 - 所有第三方 Actions 固定完整 commit SHA，基础镜像固定 tag + digest；升级时同时更新版本注释、重新运行 Actionlint/Hadolint，并验证 amd64/arm64。
 - GHCR 镜像必须包含 OCI metadata、SBOM、BuildKit provenance 和 GitHub artifact attestation；当前禁止向 Docker Hub 发布。
@@ -100,7 +101,8 @@ Web 默认使用同源 `/api` 请求后端，开发期由 Vite proxy 转发到 `
 ## 环境变量
 
 - 服务端配置由 `@sharebrain/config` 的 `loadServerEnv` 读取。
-- 前端公开配置必须使用 `WEB_PUBLIC_` 前缀，Vite 配置必须允许该前缀。
+- 前端公开配置必须使用 `WEB_PUBLIC_` 前缀；生产环境由 `/runtime-config.json` 在 React render 前加载并用 `@sharebrain/config` schema 校验，Vite `import.meta.env` 只允许作为本地 dev 回退。
+- `/runtime-config.json` 只接受已声明的字符串键；未知键、非字符串值、非法 URL/布尔/数值必须阻止应用启动并输出配置错误，禁止静默连接 localhost。
 - 禁止提交真实密钥，`.env.example` 只放占位值。
 - 开发期 auth 使用 `DEV_AUTH_USER_ID`、`DEV_AUTH_TENANT_ID`、`DEV_AUTH_ROLE`，业务 route 不得写死用户。
 - 密码认证使用 `AUTH_PASSWORD_REGISTRATION_ENABLED` 控制是否允许注册，使用 `AUTH_SESSION_COOKIE_NAME` 和 `AUTH_SESSION_EXPIRES_DAYS` 管理 session cookie。

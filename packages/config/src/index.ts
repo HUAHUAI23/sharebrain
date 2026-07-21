@@ -69,7 +69,7 @@ export const serverEnvSchema = {
 
 export const clientEnvSchema = {
   WEB_PUBLIC_API_BASE_URL: z.string().url().optional().or(z.literal("")).default(""),
-  WEB_PUBLIC_COLLAB_WS_URL: z.string().url().default("ws://localhost:3002"),
+  WEB_PUBLIC_COLLAB_WS_URL: z.string().url(),
   WEB_PUBLIC_EDITOR_WINDOWING_ENABLED: envBoolean.default(true),
   WEB_PUBLIC_EDITOR_WINDOWING_MIN_BLOCKS: z.coerce
     .number()

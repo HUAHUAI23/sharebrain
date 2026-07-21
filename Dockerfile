@@ -27,10 +27,6 @@ FROM development-dependencies AS source
 COPY . .
 
 FROM source AS web-build
-ARG WEB_PUBLIC_API_BASE_URL=""
-ARG WEB_PUBLIC_COLLAB_WS_URL="ws://localhost:3002"
-ENV WEB_PUBLIC_API_BASE_URL=${WEB_PUBLIC_API_BASE_URL}
-ENV WEB_PUBLIC_COLLAB_WS_URL=${WEB_PUBLIC_COLLAB_WS_URL}
 RUN bunx turbo build --filter=@sharebrain/web
 
 FROM source AS api-build
@@ -56,6 +52,8 @@ RUN bun install --frozen-lockfile --production --filter @sharebrain/worker
 
 FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6 AS web
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/runtime-config.json.template /etc/sharebrain/runtime-config.json.template
+COPY --chmod=755 deploy/40-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
 COPY --from=web-build /app/apps/web/dist /usr/share/nginx/html
 USER 101
 EXPOSE 8080
