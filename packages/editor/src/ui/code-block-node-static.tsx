@@ -136,7 +136,7 @@ export function CodeBlockElementStatic({
           </div>
         )}
 
-        <pre className="overflow-x-auto p-8 pr-4 font-mono text-sm leading-[normal] [tab-size:2] print:break-inside-avoid">
+        <pre className="max-w-full overflow-x-auto overscroll-x-contain p-8 pr-4 font-mono text-sm leading-[normal] [tab-size:2] print:break-inside-avoid">
           <code>{props.children}</code>
         </pre>
       </div>

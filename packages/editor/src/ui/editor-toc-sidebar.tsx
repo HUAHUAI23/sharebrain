@@ -22,6 +22,7 @@ import { useEditableChunkWindow } from './editable-chunk-window';
 
 export type EditorTocSidebarProps = {
   className?: string;
+  contentReady?: boolean;
 };
 
 type TocHeadingElement = {
@@ -428,13 +429,16 @@ const getChunkPathAtViewportPoint = (
 };
 
 function EditorTocOperationObserver({
+  enabled,
   onRefresh,
 }: {
+  enabled: boolean;
   onRefresh: () => void;
 }) {
   const editor = useEditorRef();
   const editorVersion = useEditorVersion();
   const refreshHeadingList =
+    enabled &&
     editor.operations.length > 0 &&
     shouldRefreshTocHeadingList(editor, editor.operations);
 
@@ -445,7 +449,10 @@ function EditorTocOperationObserver({
   return null;
 }
 
-export function EditorTocSidebar({ className }: EditorTocSidebarProps) {
+export function EditorTocSidebar({
+  className,
+  contentReady = true,
+}: EditorTocSidebarProps) {
   const editor = useEditorRef();
   const scrollRef = useScrollRef();
   const chunkWindow = useEditableChunkWindow();
@@ -523,9 +530,9 @@ export function EditorTocSidebar({ className }: EditorTocSidebarProps) {
   }, [cancelHeadingRefresh, chunkWindow.enabled, editor]);
 
   useEffect(() => {
-    refreshHeadingList();
+    if (contentReady) refreshHeadingList();
     return cancelHeadingRefresh;
-  }, [cancelHeadingRefresh, refreshHeadingList]);
+  }, [cancelHeadingRefresh, contentReady, refreshHeadingList]);
 
   const setActiveTocItem = useCallback(
     (nextActiveKey: string | null) => {
@@ -816,7 +823,10 @@ export function EditorTocSidebar({ className }: EditorTocSidebarProps) {
 
   return (
     <>
-      <EditorTocOperationObserver onRefresh={refreshHeadingList} />
+      <EditorTocOperationObserver
+        enabled={contentReady}
+        onRefresh={refreshHeadingList}
+      />
       {headingList.length > 0 ? (
         <nav
           aria-label={m.editor_block_toc()}

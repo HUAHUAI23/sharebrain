@@ -777,7 +777,7 @@ function DocumentEditor({
             </EditorContainer>
           </article>
           <EditorWindowFind />
-          <EditorTocSidebar />
+          <EditorTocSidebar contentReady={editorReady} />
           </EditableChunkWindowProvider>
           {historySnapshot ? (
             <DocumentVersionHistory
