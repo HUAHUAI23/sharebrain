@@ -95,7 +95,7 @@ export function resolveClientRuntimeEnv(
   location: RuntimeLocation,
   fallbackConfig: PublicRuntimeConfig = buildTimeConfig,
 ) {
-  return loadClientEnv({
+  const validatedEnv = loadClientEnv({
     WEB_PUBLIC_API_BASE_URL:
       selectedValue(runtimeConfig, fallbackConfig, "WEB_PUBLIC_API_BASE_URL") ?? "",
     WEB_PUBLIC_COLLAB_WS_URL: nonEmpty(
@@ -131,6 +131,21 @@ export function resolveClientRuntimeEnv(
       "3",
     ),
   });
+
+  return Object.freeze({
+    WEB_PUBLIC_API_BASE_URL: validatedEnv.WEB_PUBLIC_API_BASE_URL,
+    WEB_PUBLIC_COLLAB_WS_URL: validatedEnv.WEB_PUBLIC_COLLAB_WS_URL,
+    WEB_PUBLIC_EDITOR_WINDOWING_ENABLED:
+      validatedEnv.WEB_PUBLIC_EDITOR_WINDOWING_ENABLED,
+    WEB_PUBLIC_EDITOR_WINDOWING_MIN_BLOCKS:
+      validatedEnv.WEB_PUBLIC_EDITOR_WINDOWING_MIN_BLOCKS,
+    WEB_PUBLIC_EDITOR_WINDOWING_LONG_TASK_MS:
+      validatedEnv.WEB_PUBLIC_EDITOR_WINDOWING_LONG_TASK_MS,
+    WEB_PUBLIC_EDITOR_WINDOWING_MAX_FALLBACK_RATIO:
+      validatedEnv.WEB_PUBLIC_EDITOR_WINDOWING_MAX_FALLBACK_RATIO,
+    WEB_PUBLIC_EDITOR_WINDOWING_MAX_REVEAL_FAILURES:
+      validatedEnv.WEB_PUBLIC_EDITOR_WINDOWING_MAX_REVEAL_FAILURES,
+  }) satisfies ClientEnv;
 }
 
 export async function loadClientRuntimeEnv({

@@ -90,6 +90,33 @@ describe("parsePublicRuntimeConfig", () => {
 });
 
 describe("loadClientRuntimeEnv", () => {
+  test("materializes the validated env before crossing a browser Promise boundary", async () => {
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { location: httpsLocation },
+    });
+
+    try {
+      const env = await loadClientRuntimeEnv({
+        fetchRuntimeConfig: () => Promise.resolve(Response.json({})),
+        fallbackConfig: {},
+        location: httpsLocation,
+      });
+
+      expect(await Promise.resolve(env)).toBe(env);
+      expect(env.WEB_PUBLIC_COLLAB_WS_URL).toBe(
+        "wss://brain.example.com/collab",
+      );
+    } finally {
+      if (originalWindow) {
+        Object.defineProperty(globalThis, "window", originalWindow);
+      } else {
+        Reflect.deleteProperty(globalThis, "window");
+      }
+    }
+  });
+
   test("loads JSON without browser caching", async () => {
     let requestInit: RequestInit | undefined;
     const env = await loadClientRuntimeEnv({
