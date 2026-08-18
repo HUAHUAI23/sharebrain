@@ -107,8 +107,15 @@ function toBlocks(value: unknown, maxTokens: number): TextBlock[] {
   return blocks;
 }
 
-function buildChunk(input: ChunkDocumentInput, blocks: TextBlock[], chunkIndex: number): KnowledgeChunk {
-  const headingPath = blocks[0]?.headingPath ?? [];
+// `blocks` 是进入正文的全部块（含前一组带过来的重叠尾部），`ownBlocks` 才是本块自己的内容。
+// 章节路径、锚点和截断标记只能取自 ownBlocks：重叠块属于上一节，用它会把章节标错一节。
+function buildChunk(
+  input: ChunkDocumentInput,
+  blocks: TextBlock[],
+  ownBlocks: TextBlock[],
+  chunkIndex: number,
+): KnowledgeChunk {
+  const headingPath = ownBlocks[0]?.headingPath ?? [];
   const content = blocks.map((block) => block.content).join("\n\n");
   const prefix = [
     `项目：${input.projectName}`,
@@ -117,12 +124,12 @@ function buildChunk(input: ChunkDocumentInput, blocks: TextBlock[], chunkIndex: 
   ].filter(Boolean).join("\n");
 
   return {
-    blockIds: [...new Set(blocks.map((block) => block.blockId))],
+    blockIds: [...new Set(ownBlocks.map((block) => block.blockId))],
     chunkIndex,
     content,
     embedText: `${prefix}\n\n${content}`,
     headingPath,
-    metadata: blocks.some((block) => block.truncated) ? { truncated: true } : {},
+    metadata: ownBlocks.some((block) => block.truncated) ? { truncated: true } : {},
     tokenCount: estimateTokens(content),
   };
 }
@@ -176,7 +183,7 @@ export function chunkPlateDocument(
 
   return groups.map((group, index) => {
     if (index === 0 || group.some((block) => block.isolated)) {
-      return buildChunk(input, group, index);
+      return buildChunk(input, group, group, index);
     }
     const previous = groups[index - 1] ?? [];
     const overlap: TextBlock[] = [];
@@ -187,6 +194,6 @@ export function chunkPlateDocument(
       overlap.unshift(block);
       overlapTotal += block.tokenCount;
     }
-    return buildChunk(input, [...overlap, ...group], index);
+    return buildChunk(input, [...overlap, ...group], group, index);
   });
 }

@@ -25,6 +25,8 @@ import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-o
 
 import { ApiError } from "../../app/api-error";
 
+const MODEL_HISTORY_MESSAGE_LIMIT = 12;
+
 export class AiChatRepository {
   constructor(private readonly db: DatabaseClient) {}
 
@@ -292,21 +294,46 @@ export class AiChatRepository {
     return { messages, parts, citations, nextCursor };
   }
 
+  // 只读回窗口内的消息。会话可以长到几百轮，每轮都全量拉一遍消息、parts 和引用
+  // 只为取最后 12 条，是把整段历史的读取成本乘进每一次提问。
   async conversationModelHistory(auth: AuthContext, conversationId: string) {
-    const rows = await this.readConversationRows(auth, conversationId);
+    await this.requireConversation(auth, conversationId);
+    const recent = await this.db
+      .select({
+        id: aiMessages.id,
+        role: aiMessages.role,
+        sequence: aiMessages.sequence,
+      })
+      .from(aiMessages)
+      .where(and(
+        eq(aiMessages.tenantId, auth.tenantId),
+        eq(aiMessages.conversationId, conversationId),
+        eq(aiMessages.status, "complete"),
+        isNull(aiMessages.deletedAt),
+      ))
+      .orderBy(desc(aiMessages.sequence))
+      .limit(MODEL_HISTORY_MESSAGE_LIMIT);
+    if (recent.length === 0) return [];
+    const messages = recent.reverse();
+    const parts = await this.db
+      .select()
+      .from(aiMessageParts)
+      .where(and(
+        eq(aiMessageParts.tenantId, auth.tenantId),
+        inArray(aiMessageParts.messageId, messages.map((message) => message.id)),
+        isNull(aiMessageParts.deletedAt),
+      ))
+      .orderBy(asc(aiMessageParts.messageId), asc(aiMessageParts.partIndex));
     const partsByMessage = new Map<string, AiMessagePart[]>();
-    for (const part of rows.parts) {
+    for (const part of parts) {
       const existing = partsByMessage.get(part.messageId) ?? [];
       existing.push(part.payload);
       partsByMessage.set(part.messageId, existing);
     }
-    return rows.messages
-      .filter((message) => message.status === "complete")
-      .map((message) => ({
-        role: message.role as "user" | "assistant",
-        parts: partsByMessage.get(message.id) ?? [],
-      }))
-      .slice(-12);
+    return messages.map((message) => ({
+      role: message.role as "user" | "assistant",
+      parts: partsByMessage.get(message.id) ?? [],
+    }));
   }
 
   async claimRun(auth: AuthContext, runId: string) {

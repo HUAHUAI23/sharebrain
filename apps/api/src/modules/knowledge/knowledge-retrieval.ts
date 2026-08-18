@@ -372,7 +372,9 @@ async function recallFts(
   query: string,
   tier: { tier: "active_project" | "tenant_global"; projectId: string | null },
 ) {
-  const tsQuery = toSimpleTsQuery(query);
+  // 问答的 query 是整句自然语言。用 all 模式会因为一个无关词直接召回为零，
+  // 这里取 any 让覆盖度交给 ts_rank_cd 排序，再由 RRF 决定最终名次。
+  const tsQuery = toSimpleTsQuery(query, "any");
   if (!tsQuery) return [];
   const chunkRank = sql<number>`ts_rank_cd(${documentChunks.searchVector}, to_tsquery('simple', ${tsQuery}))`;
   const chunkRows = await db

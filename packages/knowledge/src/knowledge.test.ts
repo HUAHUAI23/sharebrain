@@ -7,7 +7,9 @@ import {
   isConceptStopword,
   normalizeConceptName,
   reciprocalRankFuse,
+  toSimpleTsQuery,
   tokenizeForSearch,
+  tokenizeQueryTerms,
 } from "./index";
 
 describe("knowledge text primitives", () => {
@@ -26,6 +28,32 @@ describe("knowledge text primitives", () => {
   test("概念规范化统一全半角、空格和括号后缀", () => {
     expect(normalizeConceptName("Ｋ8s 集群（旧称）")).toBe("k8s集群");
     expect(isConceptStopword("配置")).toBe(true);
+  });
+
+  test("自然语言提问剥掉疑问词和功能词", () => {
+    expect(tokenizeQueryTerms("容器健康检查怎么配置？")).toEqual(["容器", "健康", "检查", "配置"]);
+    expect(tokenizeQueryTerms("How do I configure the readiness probe?"))
+      .toEqual(["configure", "readiness", "probe"]);
+  });
+
+  test("全是功能词时保留原始词，不返回空查询", () => {
+    expect(tokenizeQueryTerms("这是什么")).toEqual(["这", "是", "什么"]);
+  });
+
+  test("any 模式让整句提问不会因为一个词落空", () => {
+    expect(toSimpleTsQuery("容器健康检查怎么配置")).toBe("容器 & 健康 & 检查 & 配置");
+    expect(toSimpleTsQuery("容器健康检查怎么配置", "any")).toBe("容器 | 健康 | 检查 | 配置");
+  });
+
+  test("tsquery 元字符不会漏进查询串", () => {
+    expect(toSimpleTsQuery("redis&nginx !k8s (pg)")).toBe("redis & nginx & k8s & pg");
+  });
+
+  test("查询端与索引端对同一个技术词给出同一串 token", () => {
+    const indexed = tokenizeForSearch("registry.example/app:v1.2");
+    for (const term of tokenizeQueryTerms("registry.example")) {
+      expect(indexed).toContain(term);
+    }
   });
 });
 
@@ -58,6 +86,26 @@ describe("chunkPlateDocument", () => {
     expect(chunks).toHaveLength(1);
     expect(chunks[0]?.metadata.truncated).toBe(true);
     expect(chunks[0]?.tokenCount).toBeLessThanOrEqual(40);
+  });
+
+  test("重叠尾部不夺走后一块的章节路径和锚点", () => {
+    const chunks = chunkPlateDocument({
+      projectName: "P",
+      documentTitle: "D",
+      value: [
+        { id: "h1", type: "h1", children: [{ text: "第一章" }] },
+        { id: "p1", type: "p", children: [{ text: "部署内容".repeat(60) }] },
+        { id: "h2", type: "h1", children: [{ text: "第二章" }] },
+        { id: "p2", type: "p", children: [{ text: "监控内容".repeat(60) }] },
+      ],
+    });
+
+    expect(chunks).toHaveLength(2);
+    expect(chunks[1]?.headingPath).toEqual(["第二章"]);
+    expect(chunks[1]?.blockIds).toEqual(["h2", "p2"]);
+    expect(chunks[1]?.embedText).toContain("章节：第二章");
+    // 重叠正文仍然保留，只是不再算作本块的归属。
+    expect(chunks[1]?.content).toContain("部署内容");
   });
 
   test("旧文档缺失节点 id 时插入前置块不会改变既有 block id", () => {
