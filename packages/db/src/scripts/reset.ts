@@ -29,6 +29,12 @@ try {
   `;
   await adminSql.unsafe(`drop database if exists ${quoteIdentifier(databaseName)}`);
   await adminSql.unsafe(`create database ${quoteIdentifier(databaseName)}`);
+  const databaseSql = postgres(databaseUrl, { max: 1, prepare: false });
+  try {
+    await databaseSql`create extension if not exists vector`;
+  } finally {
+    await databaseSql.end();
+  }
   console.info(`已重置开发数据库: ${databaseName}`);
 } finally {
   await adminSql.end();

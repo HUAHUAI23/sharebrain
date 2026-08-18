@@ -25,6 +25,7 @@
         "@sharebrain/config": "workspace:*",
         "@sharebrain/contracts": "workspace:*",
         "@sharebrain/db": "workspace:*",
+        "@sharebrain/knowledge": "workspace:*",
         "ai": "catalog:",
         "drizzle-orm": "catalog:",
         "hono": "catalog:",
@@ -45,6 +46,7 @@
         "@sharebrain/config": "workspace:*",
         "@sharebrain/contracts": "workspace:*",
         "@sharebrain/db": "workspace:*",
+        "@sharebrain/knowledge": "workspace:*",
         "@slate-yjs/core": "catalog:",
         "drizzle-orm": "catalog:",
         "slate": "catalog:",
@@ -103,11 +105,13 @@
       "name": "@sharebrain/worker",
       "version": "0.1.0",
       "dependencies": {
+        "@ai-sdk/openai-compatible": "catalog:",
         "@aws-sdk/client-s3": "catalog:",
         "@mastra/core": "catalog:",
         "@sharebrain/config": "workspace:*",
         "@sharebrain/contracts": "workspace:*",
         "@sharebrain/db": "workspace:*",
+        "@sharebrain/knowledge": "workspace:*",
         "ai": "catalog:",
         "drizzle-orm": "catalog:",
         "zod": "catalog:",
@@ -247,6 +251,15 @@
         "@inlang/paraglide-js": "catalog:",
         "zod": "catalog:",
       },
+      "devDependencies": {
+        "@sharebrain/typescript-config": "workspace:*",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/knowledge": {
+      "name": "@sharebrain/knowledge",
+      "version": "0.1.0",
       "devDependencies": {
         "@sharebrain/typescript-config": "workspace:*",
         "@types/bun": "catalog:",
@@ -1025,6 +1038,8 @@
     "@sharebrain/editor": ["@sharebrain/editor@workspace:packages/editor"],
 
     "@sharebrain/i18n": ["@sharebrain/i18n@workspace:packages/i18n"],
+
+    "@sharebrain/knowledge": ["@sharebrain/knowledge@workspace:packages/knowledge"],
 
     "@sharebrain/typescript-config": ["@sharebrain/typescript-config@workspace:packages/typescript-config"],
 

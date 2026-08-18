@@ -7,6 +7,8 @@ import {
 } from "@sharebrain/contracts";
 import { upsertMediaUsageWithClient } from "@sharebrain/db";
 import {
+  aiConversations,
+  aiMessages,
   documents,
   mediaDeletionJobs,
   mediaObjects,
@@ -70,11 +72,15 @@ export class MediaService {
     const payload = parseJson(createMediaUploadRequestSchema, input);
     if (payload.usageKind === "inline") {
       assertCanWriteContent(auth);
-    } else {
+    } else if (payload.usageKind === "avatar") {
       assertAvatarUpload(payload.mimeType, payload.byteSize, this.env.MEDIA_AVATAR_MAX_BYTES);
     }
 
-    const maxBytes = payload.usageKind === "avatar" ? this.env.MEDIA_AVATAR_MAX_BYTES : this.env.MEDIA_UPLOAD_MAX_BYTES;
+    const maxBytes = payload.usageKind === "avatar"
+      ? this.env.MEDIA_AVATAR_MAX_BYTES
+      : payload.usageKind === "attachment"
+        ? Math.min(this.env.MEDIA_UPLOAD_MAX_BYTES, this.env.AI_CHAT_ATTACHMENT_MAX_BYTES)
+        : this.env.MEDIA_UPLOAD_MAX_BYTES;
     if (payload.byteSize > maxBytes) {
       throw new ApiError("MEDIA_TOO_LARGE", "文件超过允许大小。", 422, { maxBytes });
     }
@@ -530,6 +536,29 @@ export class MediaService {
       .limit(1);
     if (!media) {
       throw new ApiError("MEDIA_NOT_FOUND", "媒体对象不存在或不可访问。", 404);
+    }
+    if (media.purpose === "attachment") {
+      const [usage] = await this.db
+        .select({ id: mediaUsages.id })
+        .from(mediaUsages)
+        .innerJoin(aiMessages, eq(mediaUsages.resourceId, aiMessages.id))
+        .innerJoin(aiConversations, eq(aiMessages.conversationId, aiConversations.id))
+        .where(and(
+          eq(mediaUsages.tenantId, auth.tenantId),
+          eq(mediaUsages.mediaId, media.id),
+          eq(mediaUsages.resourceType, "ai_message"),
+          eq(mediaUsages.usageKind, "attachment"),
+          eq(aiMessages.tenantId, auth.tenantId),
+          eq(aiConversations.tenantId, auth.tenantId),
+          eq(aiConversations.userId, auth.userId),
+          isNull(mediaUsages.deletedAt),
+          isNull(aiMessages.deletedAt),
+          isNull(aiConversations.deletedAt),
+        ))
+        .limit(1);
+      if (!usage) {
+        throw new ApiError("MEDIA_NOT_FOUND", "媒体对象不存在或不可访问。", 404);
+      }
     }
     return { url: await this.storage.createReadUrl(media.bucket, media.objectKey) };
   }

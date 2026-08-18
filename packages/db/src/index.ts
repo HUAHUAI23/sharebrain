@@ -4,6 +4,8 @@ export * from "./defaults";
 export * from "./document-activity-store";
 export * from "./document-revision-store";
 export * from "./document-version-store";
+export * from "./knowledge-index-store";
+export * from "./knowledge-concept-counts";
 export * from "./media-usage-service";
 export * from "./module-template-service";
 export * from "./module-template-seeds";

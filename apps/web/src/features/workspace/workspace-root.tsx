@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Outlet } from "@tanstack/react-router";
 import { ApiClientError, apiRequest, queryKeys } from "../../lib/api-client";
 import { AuthView } from "../auth/auth-view";
+import { KnowledgeChatPanel } from "../knowledge-chat/knowledge-chat-panel";
 import type { MeResponse } from "./workspace-types";
 
 export function WorkspaceRoot() {
@@ -44,5 +45,10 @@ export function WorkspaceRoot() {
     );
   }
 
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <KnowledgeChatPanel />
+    </>
+  );
 }

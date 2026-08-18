@@ -1,6 +1,10 @@
 // 将停止编辑后的 current open checkpoint 封存为最终历史，并与正文保存复用 document 行锁。
 import type { ServerEnv } from "@sharebrain/config";
-import { sealCurrentVersion, type DatabaseClient } from "@sharebrain/db";
+import {
+  enqueueKnowledgeIndexJob,
+  sealCurrentVersion,
+  type DatabaseClient,
+} from "@sharebrain/db";
 import { documentVersions, documents } from "@sharebrain/db/schema";
 import { and, asc, eq, isNull, lte, sql } from "drizzle-orm";
 
@@ -48,6 +52,7 @@ export async function runDocumentVersionIdleSeal(
       ...candidate,
       cutoff,
       now,
+      knowledgeIndexEnabled: env.KNOWLEDGE_INDEX_ENABLED,
       ...(options.tenantId ? { tenantId: options.tenantId } : {}),
     });
     if (didSeal) sealed += 1;
@@ -71,6 +76,7 @@ export async function sealIdleDocumentVersionCandidate(
     cutoff: Date;
     now: Date;
     tenantId?: string;
+    knowledgeIndexEnabled?: boolean;
   },
 ) {
   return db.transaction(async (tx) => {
@@ -103,6 +109,22 @@ export async function sealIdleDocumentVersionCandidate(
       userId: current.updatedBy,
       now: input.now,
     });
+    if (
+      input.knowledgeIndexEnabled !== false &&
+      sealed?.id === current.id &&
+      sealed.sealedAt &&
+      sealed.revisionId
+    ) {
+      await enqueueKnowledgeIndexJob(tx, {
+        tenantId: current.tenantId,
+        targetType: "document",
+        targetId: current.documentId,
+        revisionId: sealed.revisionId,
+        reason: "revision_sealed",
+        actorId: current.updatedBy,
+        now: input.now,
+      });
+    }
     return sealed?.id === current.id && sealed.sealedAt !== null;
   });
 }

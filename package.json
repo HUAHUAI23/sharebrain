@@ -148,6 +148,7 @@
     "dev:api": "bun --filter @sharebrain/api dev",
     "dev:collab": "bun --filter @sharebrain/collab dev",
     "dev:worker": "bun --filter @sharebrain/worker dev",
+    "db:ext": "bun --filter @sharebrain/db db:ext",
     "db:push": "bun --filter @sharebrain/db db:push",
     "db:reset": "bun --filter @sharebrain/db db:reset",
     "db:reset:push": "bun --filter @sharebrain/db db:reset:push",

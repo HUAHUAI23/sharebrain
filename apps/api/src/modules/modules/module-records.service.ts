@@ -21,12 +21,13 @@ import {
 } from "./module-access";
 
 import type { DatabaseClient } from "@sharebrain/db";
+import type { ServerEnv } from "@sharebrain/config";
 
 export class ModuleRecordsService {
   private readonly indexer: IndexerService;
 
-  constructor(private readonly db: DatabaseClient) {
-    this.indexer = new IndexerService(db);
+  constructor(private readonly db: DatabaseClient, env: ServerEnv) {
+    this.indexer = new IndexerService(db, env.KNOWLEDGE_INDEX_ENABLED);
   }
 
   async list(auth: AuthContext, projectId: string, moduleId: string) {

@@ -2,7 +2,7 @@
 
 ## 目标定位
 
-ShareBrain 是面向私有化交付、运维和项目团队的项目周期上下文管理平台。当前阶段已从框架骨架进入个人业务闭环：支持个人空间、账户与头像、空间容量、项目、新项目配置、模块记录、Markdown 文档、搜索读模型和完整媒体生命周期。
+ShareBrain 是面向私有化交付、运维和项目团队的项目周期上下文管理平台。当前已形成个人业务与知识闭环：除项目、模块、协作文档和媒体生命周期外，还支持 tenant 内跨项目混合检索、多轮问答、可追溯引用、反馈校准和管理员知识治理。
 
 ## 技术路线
 
@@ -13,7 +13,7 @@ ShareBrain 是面向私有化交付、运维和项目团队的项目周期上下
 | 状态与数据 | TanStack Query、TanStack Router、Zustand、TanStack Table/Form | Router 管页面 URL 状态，Query 管服务端状态，Zustand 管局部 UI 状态 |
 | API | Hono、Zod、OpenAPI | 轻量主业务 API，route/service 分层，所有入参出参基于 contract |
 | 协作 | Hocuspocus、Yjs | 独立 WebSocket 协作服务，保存 CRDT snapshot |
-| 数据 | PostgreSQL、Drizzle ORM | PostgreSQL 作为事实库，开发阶段 Drizzle push 直推 schema；模块记录 values 使用 jsonb |
+| 数据 | PostgreSQL、pgvector、Drizzle ORM | PostgreSQL 同时承载业务事实、FTS、向量和有界知识图；开发阶段 Drizzle push 直推 schema |
 | Worker | Bun、轻量 Mastra、Vercel AI SDK | 后台索引、摘要、chunk、embedding、媒体 GC 和周期任务 |
 | 国际化 | `packages/i18n` | 默认中文，保留英文消息结构 |
 | 容器与发布 | Docker Buildx、GitHub Actions、GHCR | 单 Dockerfile 多目标产出四个非 root、多架构服务镜像 |
@@ -25,7 +25,8 @@ flowchart LR
   Browser[apps/web React + Plate] -->|HTTP| API[apps/api Hono]
   Browser -->|WebSocket/Yjs| Collab[apps/collab Hocuspocus]
   Browser -->|POST policy| Storage[(S3 / MinIO)]
-  API --> DB[(PostgreSQL)]
+  API --> DB[(PostgreSQL + pgvector)]
+  API --> AI
   API --> Storage
   Collab --> DB
   Collab -->|queue indexing| Worker[apps/worker]
@@ -41,6 +42,8 @@ flowchart LR
 - Worker 处理异步派生数据，不写入权限事实源，不绕过 API/domain service。
 - PostgreSQL 保存 CRDT snapshot、Plate JSON、plain text、blocks、search items、chunks、audit logs。
 - AI 最终回答必须基于 Context Pack，并附带可追溯证据来源。
+- 检索、图扩展、引用读取和治理写入统一以 `auth.tenantId` 与可见项目集合为硬边界；模型不参与访问范围决策。
+- 模型看到的检索正文与概念候选属于不可信数据，必须用明确边界与高优先级指令隔离；日志、审计和任务失败摘要禁止记录 prompt、正文、密钥或 provider 原始响应。
 - 自定义模块字段定义存表，记录值存 `module_records.values jsonb`，并按不可变 fieldId 存储。
 - 系统固定模板为日志、项目背景和知识库；固定身份由系统模板来源派生，Web 只消费 API 返回的 `isSystemFixed`。模块 `kind` 创建后不可变，避免 timeline 记录字段和值语义被切换到 collection。
 - 初始模块和项目模块的 key 分别按空间/项目唯一；active 冲突返回业务错误，软删除后同 key 且同类型创建会恢复原行。系统模板复制到空间时会恢复被软删除的固定来源模板，保证固定导航来源稳定；新项目只复制 `included_in_new_projects=true` 的初始模块。
@@ -53,6 +56,33 @@ flowchart LR
 - Web 页面身份以 TanStack Router URL 为事实源；文档编辑页、项目模块页、`/settings/new-project` 与 `/settings/storage` 必须支持刷新恢复、浏览器前进后退和深链接。Zustand 只承载侧栏、面板、弹层等局部 UI 状态。
 - 容器发布使用根 Dockerfile 的 `web/api/collab/worker` targets；Web 运行在 Nginx Unprivileged 8080，API/Worker 使用 Bun 1.3.11，Collab 遵循 ADR-004 使用 Node 24。基础镜像固定 digest，运行用户必须为非 root。
 - GitHub Actions 的 Pull Request 只做多架构构建验证；main、SemVer 标签和手动运行才可使用 `GITHUB_TOKEN` 发布 GHCR，并生成 OCI metadata、SBOM、provenance 与 artifact attestation。不得接入 `pull_request_target` 或把服务端 secret 作为镜像 build argument。
+
+## 知识系统
+
+知识系统保持共享算法、数据事实和应用权限三层分离：
+
+| 层级 | 职责 |
+|------|------|
+| `packages/knowledge` | 中文分词、token 估算、Plate 标题树分块、概念规范化、RRF 与反馈权重；不依赖 app 或 tenant |
+| `packages/contracts` / `packages/db` | 知识/聊天 DTO、pgvector/FTS schema、durable job store、会话/run/引用/反馈事实 |
+| `apps/api` | scope 解析、三路召回、图扩展、预算装配、多轮流、引用可见性降级和治理权限 |
+| `apps/collab` / `apps/worker` | sealed revision 事务内投递；Worker 异步分块、embedding、相似边、概念抽取和删除传播 |
+| `apps/web` | 全局聊天面板、会话/重试/引用/反馈，以及 `/settings/knowledge` 治理台 |
+
+```mermaid
+sequenceDiagram
+  participant Source as API/Collab
+  participant DB as PostgreSQL + pgvector
+  participant Worker
+  participant Chat as AI API
+  Source->>DB: tenant-scoped knowledge_index_jobs
+  Worker->>DB: claim lease + chunks/FTS/embedding/concepts/edges
+  Chat->>DB: visible projects + FTS/vector/concept recall
+  Chat->>DB: conversation/message/run/citation/trace
+  Chat-->>Chat: scope -> citations -> text -> finish/error
+```
+
+`knowledge_index_jobs` 以 `(tenant_id,target_type,target_id)` 条件唯一键去重在途任务，并用 lease、超时恢复和指数退避保证可重试。`search_vector` 是 `GENERATED ALWAYS` 列并使用 GIN；向量候选少于阈值时强制精确扫描，达到阈值时使用 `vector_cosine_ops` HNSW。历史引用保留标题与片段快照，但每次读取重新验证来源可见性；来源删除或权限收紧后只返回标题，`snippet=null` 且 `available=false`。
 
 ## 正文版本历史
 
@@ -134,12 +164,12 @@ sequenceDiagram
 
 `open` 表示编辑会话尚未封存，可检查临时 before/after 但不可恢复；`sealed` 表示会话已结束，正文活动可通过 after revision 恢复。版本 checkpoint 与活动 revision 复用同一 typed restore operation、state-vector conflict、force 和 ack/status fallback；标题和评论活动只展示摘要，不提供整页恢复。
 
-## MVP 阶段顺序
+## 能力现状
 
-1. 个人项目、模块、记录、文档、媒体和搜索读模型。
-2. 正式登录、团队、邀请链接和成员管理。
-3. Hocuspocus/Yjs 协作启用，worker 异步物化版本和索引。
-4. Context Pack、项目知识问答、AI draft/suggestion。
+1. 个人项目、模块、记录、文档、媒体、密码 session 与协作编辑已可用。
+2. Worker 已异步物化版本、活动、知识 chunks、FTS、embedding、概念和关系。
+3. 全局多轮知识问答、引用/反馈和管理员治理台已可用；编辑器 `/api/ai/command` 边界保留。
+4. 团队邀请、企业身份源和团队周报仍属于后续范围。
 
 ## 官方资料核对记录
 

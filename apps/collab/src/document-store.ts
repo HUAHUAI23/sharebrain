@@ -17,6 +17,7 @@ import {
   toDocumentActivityExcerpt,
 } from "@sharebrain/contracts";
 import {
+  enqueueKnowledgeIndexJob,
   insertRestoreVersion,
   materializeAutoVersion,
   recordDocumentContentActivity,
@@ -24,6 +25,7 @@ import {
   sealCurrentVersion,
   syncDocumentInlineMediaUsagesWithClient,
 } from "@sharebrain/db";
+import { tokenizeForSearch } from "@sharebrain/knowledge";
 import {
   documentCrdtSnapshots,
   documentReviewStates,
@@ -168,6 +170,7 @@ export async function storeDocumentSnapshot(
     if (!version) {
       return;
     }
+    const storedVersion = "version" in version ? version.version : version;
 
     await persistDocumentActivityBatches(tx, options.activityBatches ?? []);
 
@@ -179,6 +182,20 @@ export async function storeDocumentSnapshot(
     });
     await materializeReviewState(tx, context, ydoc, plateJson);
     await upsertSearchItem(tx, context, plainText);
+    if (
+      options.knowledgeIndexEnabled !== false &&
+      storedVersion.sealedAt &&
+      storedVersion.revisionId
+    ) {
+      await enqueueKnowledgeIndexJob(tx, {
+        tenantId: context.tenantId,
+        targetType: "document",
+        targetId: context.documentId,
+        revisionId: storedVersion.revisionId,
+        reason: "revision_sealed",
+        actorId: context.userId,
+      });
+    }
     return version;
   });
 
@@ -188,6 +205,7 @@ export async function storeDocumentSnapshot(
 
 type StoreDocumentOptions = {
   activityBatches?: DocumentActivityBatch[];
+  knowledgeIndexEnabled?: boolean;
   onSnapshotStored?: (snapshot: Uint8Array) => void;
   seal?: boolean;
   restore?: {
@@ -525,6 +543,7 @@ async function upsertSearchItem(db: DocumentStoreClient, context: CollabContext,
     documentId: document.id,
     title: document.title,
     content: plainText || document.title,
+    searchText: tokenizeForSearch([document.title, plainText].filter(Boolean).join("\n")),
     pathText: document.title,
     tags: [],
     metadata: {},

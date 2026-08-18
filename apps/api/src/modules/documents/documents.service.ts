@@ -52,7 +52,7 @@ export class DocumentsService {
     private readonly db: DatabaseClient,
     private readonly env: ServerEnv,
   ) {
-    this.indexer = new IndexerService(db);
+    this.indexer = new IndexerService(db, env.KNOWLEDGE_INDEX_ENABLED);
   }
 
   async listByProject(auth: AuthContext, projectId: string, moduleId?: string | null, moduleRecordId?: string | null) {
@@ -391,6 +391,8 @@ export class DocumentsService {
       throw new ApiError("DOCUMENT_NOT_FOUND", "文档不存在。", 404);
     }
 
+    await this.indexer.removeDocument(auth, document.id);
+
     return serializeDocumentSummary(document);
   }
 
@@ -425,6 +427,32 @@ export class DocumentsService {
 
     if (!document) {
       throw new ApiError("DOCUMENT_NOT_FOUND", "文档不存在。", 404);
+    }
+
+    const [latestVersion] = await this.db
+      .select({
+        plateJson: documentVersions.plateJson,
+        plainText: documentVersions.plainText,
+        revisionId: documentVersions.revisionId,
+      })
+      .from(documentVersions)
+      .where(
+        and(
+          eq(documentVersions.tenantId, auth.tenantId),
+          eq(documentVersions.documentId, document.id),
+        ),
+      )
+      .orderBy(desc(documentVersions.versionNo))
+      .limit(1);
+    await this.indexer.indexDocument(
+      auth,
+      document.id,
+      latestVersion?.plateJson ?? [],
+      latestVersion?.plainText ?? "",
+      latestVersion?.revisionId,
+    );
+    if (!latestVersion?.revisionId) {
+      await this.indexer.enqueueDocument(auth, document.id);
     }
 
     return serializeDocumentSummary(document);

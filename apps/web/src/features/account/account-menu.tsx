@@ -15,7 +15,7 @@ import {
 import { Progress } from "@sharebrain/ui/components/progress";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRight, Database, Languages, LayoutList, LogOut } from "lucide-react";
+import { BrainCircuit, ChevronRight, Database, Languages, LayoutList, LogOut } from "lucide-react";
 import { useState } from "react";
 
 import { apiRequest, queryKeys } from "../../lib/api-client";
@@ -47,7 +47,8 @@ export function AccountMenu() {
   const currentLocale = getLocale() as Locale;
   const user = me.data?.user;
   const tenant = me.data?.tenant;
-  if (!user || !tenant) return null;
+  const role = me.data?.role;
+  if (!user || !tenant || !role) return null;
 
   const totalCounted = storage.data
     ? storage.data.usedBytes + storage.data.reservedBytes + storage.data.reclaimingBytes
@@ -89,7 +90,7 @@ export function AccountMenu() {
               <strong className="truncate text-sm font-semibold">{user.displayName}</strong>
               <span className="truncate text-[12px] text-muted-foreground">{user.email}</span>
               <span className="truncate text-[11px] text-muted-foreground/80">
-                {tenant.name} · {me.data?.role === "admin" ? m.account_role_admin() : m.account_role_member()}
+                {tenant.name} · {role === "admin" ? m.account_role_admin() : m.account_role_member()}
               </span>
             </span>
             <ChevronRight className="size-4 text-muted-foreground/60" />
@@ -135,6 +136,25 @@ export function AccountMenu() {
               </span>
               <span className="font-medium">{m.account_new_project_settings()}</span>
             </DropdownMenuItem>
+            {role === "admin" ? (
+              <DropdownMenuItem
+                className="h-10 rounded-md px-3"
+                onSelect={() => void navigate({
+                  to: "/settings/knowledge",
+                  search: {
+                    view: "concepts",
+                    proposalKind: "concept",
+                    sourceType: "document",
+                    graphDepth: 1,
+                  },
+                })}
+              >
+                <span className="flex size-7 items-center justify-center text-muted-foreground">
+                  <BrainCircuit className="size-4" />
+                </span>
+                <span className="font-medium">{m.account_knowledge_settings()}</span>
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger className="h-10 rounded-md px-3">
                 <span className="flex size-7 items-center justify-center text-muted-foreground">

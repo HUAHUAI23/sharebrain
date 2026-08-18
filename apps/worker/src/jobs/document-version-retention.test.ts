@@ -5,6 +5,7 @@ import { DOCUMENT_VERSION_FORMAT_VERSION, hashDocumentVersionValue } from "@shar
 import { createDatabaseClient } from "@sharebrain/db";
 import {
   documentChunks,
+  documentRevisions,
   documentVersionOperations,
   documentVersions,
   documents,
@@ -27,6 +28,7 @@ const db = createDatabaseClient(env.DATABASE_URL);
 const documentId = crypto.randomUUID();
 const expiryDocumentId = crypto.randomUUID();
 const candidateId = crypto.randomUUID();
+const candidateRevisionId = crypto.randomUUID();
 const recentOperationVersionId = crypto.randomUUID();
 const activeOperationVersionId = crypto.randomUUID();
 const recentVersionId = crypto.randomUUID();
@@ -72,6 +74,19 @@ beforeAll(async () => {
   const contentHash = await hashDocumentVersionValue(value);
   const oldDate = new Date(now.getTime() - 120 * 86_400_000);
   const recentDate = new Date(now.getTime() - 24 * 60 * 60_000);
+  await db.insert(documentRevisions).values({
+    id: candidateRevisionId,
+    tenantId: env.DEV_AUTH_TENANT_ID,
+    documentId,
+    formatVersion: DOCUMENT_VERSION_FORMAT_VERSION,
+    contentHash,
+    plateJson: value,
+    plainText: "retention",
+    createdBy: env.DEV_AUTH_USER_ID,
+    updatedBy: env.DEV_AUTH_USER_ID,
+    createdAt: oldDate,
+    updatedAt: oldDate,
+  });
   await db.insert(documentVersions).values([
     {
       id: candidateId,
@@ -82,6 +97,7 @@ beforeAll(async () => {
       formatVersion: DOCUMENT_VERSION_FORMAT_VERSION,
       contentHash,
       plateJson: value,
+      revisionId: candidateRevisionId,
       createdBy: env.DEV_AUTH_USER_ID,
       updatedBy: env.DEV_AUTH_USER_ID,
       createdAt: oldDate,
@@ -220,9 +236,15 @@ beforeAll(async () => {
     tenantId: env.DEV_AUTH_TENANT_ID,
     projectId,
     documentId,
-    versionNo: 1,
+    revisionId: candidateRevisionId,
     chunkIndex: 0,
+    blockIds: [],
+    headingPath: [],
     content: "retention",
+    embedText: "retention",
+    contentHash,
+    searchText: "retention",
+    tokenCount: 1,
     createdBy: env.DEV_AUTH_USER_ID,
     updatedBy: env.DEV_AUTH_USER_ID,
   });

@@ -22,6 +22,7 @@ import { createMediaRoutes } from "../modules/media/media.routes";
 import { createModulesRoutes } from "../modules/modules/modules.routes";
 import { createProjectsRoutes } from "../modules/projects/projects.routes";
 import { createSearchRoutes } from "../modules/search/search.routes";
+import { createKnowledgeRoutes } from "../modules/knowledge/knowledge.routes";
 
 type CreateAppOptions = {
   dependencies?: AppDependencies;
@@ -73,6 +74,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.route("/", createSearchRoutes());
   app.route("/", createMediaRoutes());
   app.route("/", createAiRoutes());
+  app.route("/", createKnowledgeRoutes());
 
   app.onError((error, context) => {
     if (isApiError(error)) {

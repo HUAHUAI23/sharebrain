@@ -72,4 +72,15 @@ export const queryKeys = {
   documentVersion: (documentId: string, versionId: string) =>
     ["documents", documentId, "versions", versionId] as const,
   search: (query: string) => ["search", query] as const,
+  aiConversations: ["ai", "conversations"] as const,
+  aiMessages: (conversationId: string) => ["ai", "conversations", conversationId, "messages"] as const,
+  knowledgeConcepts: (status: string, sort: string, query = "") =>
+    ["knowledge", "concepts", status, sort, query] as const,
+  knowledgeConcept: (conceptId: string) => ["knowledge", "concepts", conceptId, "detail"] as const,
+  knowledgeProposals: (kind: string) => ["knowledge", "proposals", kind] as const,
+  knowledgeSources: (sourceType: string, query = "") =>
+    ["knowledge", "sources", sourceType, query] as const,
+  knowledgeGraph: (conceptId: string | null, depth = 1) =>
+    ["knowledge", "graph", conceptId ?? "all", depth] as const,
+  knowledgeAnalytics: ["knowledge", "analytics"] as const,
 };

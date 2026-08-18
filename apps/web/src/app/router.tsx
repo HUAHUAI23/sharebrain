@@ -8,10 +8,12 @@ import {
 } from "@tanstack/react-router";
 import { lazy, Suspense, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { z } from "zod";
 
 import { apiRequest, queryKeys } from "../lib/api-client";
 import { HomeView } from "../features/home/home-view";
 import { ModuleTemplatesView } from "../features/modules/module-templates-view";
+import { KnowledgeManagementView } from "../features/knowledge-management/knowledge-management-view";
 import { ProjectView } from "../features/project/project-view";
 import { StorageView } from "../features/storage/storage-view";
 import { WorkspaceRoot } from "../features/workspace/workspace-root";
@@ -19,6 +21,18 @@ import type {
   DocumentMetadataResponse,
   WorkspaceView,
 } from "../features/workspace/workspace-types";
+import type {
+  KnowledgeSearchPatch,
+  KnowledgeSettingsSearch,
+} from "../features/knowledge-management/knowledge-management.types";
+
+const knowledgeSearchSchema = z.object({
+  view: z.enum(["concepts", "proposals", "weights", "graph", "analytics"]).catch("concepts").default("concepts"),
+  conceptId: z.string().uuid().optional().catch(undefined),
+  proposalKind: z.enum(["concept", "relation", "merge"]).catch("concept").default("concept"),
+  sourceType: z.enum(["document", "project", "concept"]).catch("document").default("document"),
+  graphDepth: z.coerce.number().pipe(z.union([z.literal(1), z.literal(2)])).catch(1).default(1),
+});
 
 const EditorShell = lazy(() =>
   import("../features/editor/editor-shell").then((module) => ({
@@ -52,6 +66,13 @@ const storageRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "settings/storage",
   component: StorageView,
+});
+
+const knowledgeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "settings/knowledge",
+  validateSearch: (search) => knowledgeSearchSchema.parse(search),
+  component: KnowledgeRouteComponent,
 });
 
 const projectRoute = createRoute({
@@ -89,6 +110,7 @@ const routeTree = rootRoute.addChildren([
   moduleTemplatesRoute,
   moduleTemplateDetailRoute,
   storageRoute,
+  knowledgeRoute,
   projectRoute,
   projectModuleRoute,
   documentLookupRoute,
@@ -193,6 +215,30 @@ function ModuleTemplatesRouteComponent() {
 function ModuleTemplateDetailRouteComponent() {
   const { templateId } = moduleTemplateDetailRoute.useParams();
   return <ModuleTemplatesView selectedTemplateId={templateId} />;
+}
+
+function KnowledgeRouteComponent() {
+  const navigate = useNavigate();
+  const search = knowledgeRoute.useSearch() as KnowledgeSettingsSearch;
+  const onSearchChange = useCallback((
+    next: KnowledgeSearchPatch,
+    replace = false,
+  ) => {
+    const merged = { ...search, ...next };
+    void navigate({
+      to: "/settings/knowledge",
+      search: {
+        view: merged.view,
+        proposalKind: merged.proposalKind,
+        sourceType: merged.sourceType,
+        graphDepth: merged.graphDepth,
+        ...(merged.conceptId ? { conceptId: merged.conceptId } : {}),
+      },
+      replace,
+    });
+  }, [navigate, search]);
+
+  return <KnowledgeManagementView search={search} onSearchChange={onSearchChange} />;
 }
 
 function ProjectRouteComponent() {

@@ -26,6 +26,7 @@ import {
   type DiscussionReadItem,
   type TDiscussion,
   type TDiscussionReadState,
+  useEditableChunkWindow,
 } from "@sharebrain/editor";
 import {
   projectDocumentVersionValue,
@@ -104,6 +105,44 @@ function DocumentEditorChunk({ attributes, children, lowest }: PlateChunkProps) 
       {children}
     </EditableChunkFallback>
   );
+}
+
+function CitationBlockNavigator({
+  editor,
+  ready,
+}: {
+  editor: ReturnType<typeof usePlateEditor>;
+  ready: boolean;
+}) {
+  const chunkWindow = useEditableChunkWindow();
+
+  useEffect(() => {
+    if (!ready || !editor) return;
+    let cancelled = false;
+    const revealHash = async () => {
+      const rawId = window.location.hash.slice(1);
+      if (!rawId) return;
+      const blockId = decodeURIComponent(rawId);
+      const topLevelIndex = editor.children.findIndex((node) =>
+        Boolean(node && typeof node === "object" && "id" in node && node.id === blockId));
+      const path = topLevelIndex >= 0 ? [topLevelIndex] : undefined;
+      const element = await chunkWindow.revealBlock(blockId, path);
+      if (cancelled || !element?.isConnected) return;
+      element.dataset.navTarget = "true";
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.setTimeout(() => {
+        if (element.isConnected) delete element.dataset.navTarget;
+      }, 3_000);
+    };
+    void revealHash();
+    window.addEventListener("hashchange", revealHash);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("hashchange", revealHash);
+    };
+  }, [chunkWindow, editor, ready]);
+
+  return null;
 }
 
 const cursorColors = [
@@ -768,6 +807,7 @@ function DocumentEditor({
                 onKeyDown={handleEditorKeyDown}
                 onPaste={handleEditorPaste}
               />
+              <CitationBlockNavigator editor={editor} ready={editorReady} />
               {!editorReady && initialPreviewValue ? (
                 <VersionPreview
                   value={initialPreviewValue}

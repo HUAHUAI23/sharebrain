@@ -93,14 +93,16 @@ export async function runDocumentVersionRetention(
         .limit(1);
       if (!current) return null;
 
-      await tx
-        .delete(documentChunks)
-        .where(
-          and(
-            eq(documentChunks.documentId, candidate.documentId),
-            eq(documentChunks.versionNo, candidate.versionNo),
-          ),
-        );
+      if (candidate.revisionId) {
+        await tx
+          .delete(documentChunks)
+          .where(
+            and(
+              eq(documentChunks.documentId, candidate.documentId),
+              eq(documentChunks.revisionId, candidate.revisionId),
+            ),
+          );
+      }
       const released = await tx
         .update(mediaUsages)
         .set({ deletedAt: now, updatedAt: now })

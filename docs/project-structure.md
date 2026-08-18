@@ -14,6 +14,7 @@ packages/
   db/        Drizzle schema、client、开发期 push/reset 脚本
   editor/    Plate 编辑器基座（插件 kits、节点 UI、工具栏、静态渲染）
   i18n/      Paraglide 生成消息入口和 locale 工具
+  knowledge/ 无 app 依赖的分词、分块、概念规范化和检索排序算法
   ui/        shadcn 风格 UI 组件库和样式 token
   typescript-config/ 共享 TS 配置
 messages/    Paraglide 中文/英文消息源
@@ -59,6 +60,7 @@ src/
 - 所有已认证页面在右上角复用 `AccountMenu`；菜单只承载身份、空间容量摘要和设置命令，头像裁剪使用独立 Dialog，完整容量明细使用 `/settings/storage` 路由。
 - 新项目配置使用 `/settings/new-project` 与 `/settings/new-project/modules/:templateId` 深链接；模块选择由 URL 驱动，字段编辑使用 Sheet，不把列表、详情和复杂字段表单塞进同一滚动面板。
 - `features/modules` 中列表容器、模块身份表单和字段 Sheet 分文件维护，API payload types 使用独立 contract 文件；容量格式化等无状态工具放 `features/storage`，账户组件不得成为存储工具依赖源。
+- 全局问答放 `features/knowledge-chat`，只保存面板/当前会话等 UI 状态到 Zustand，历史以 REST 为权威并增量消费 UI-message SSE。治理页放 `features/knowledge-management`，路由固定为 `/settings/knowledge`，选中概念、提议类型、来源类型和图深度进入 URL search。
 - `features/project` 按渲染原型拆分组件，`project-view.tsx` 只保留项目布局和模块选择，collection/timeline/record 文档列表放独立文件。
 - timeline 记录创建使用 `RecordComposerSheet`；`NotionCreateRow` 只适合简单对象的新建入口，不承载动态字段复杂表单。
 - 正文版本历史产品壳位于 `features/editor/document-version-history*`：queries 只管 sealed list/detail，restore adapter 只管 API operation + stateless ack/status fallback，state reducer 固化列表、内容和 preview/changes 转换；不得把这些业务 DTO 或权限逻辑移入 `packages/editor`。
@@ -83,6 +85,7 @@ src/
 - 业务模块按 `modules/<domain>/<domain>.routes.ts` 和 `*.service.ts` 组织。
 - 一个 route 文件可按聚合接线多个 service；`modules/modules` 分别使用 `ModuleTemplatesService`、`ProjectModulesService`、`ModuleRecordsService`，共享访问与成员校验 helper，禁止重新合并为全能 service。
 - API 集成测试可放在 `modules/*.integration.test.ts`，通过 Hono `app.request()` 覆盖 route/middleware/service 链路。
+- `modules/ai/ai-chat.*` 管用户私有会话、run/step、引用和反馈；`modules/knowledge` 管可见范围、混合检索和治理。任一 repository/service 查询都必须显式携带 tenant，治理写入口必须在 service 再校验 admin。
 
 ## apps/collab
 
@@ -95,6 +98,7 @@ src/
 规则:
 - 只处理协作同步和权限 gate。
 - 文档索引只发 job，不在 WebSocket 链路内做重计算。
+- sealed revision 在保存事务内投递 `knowledge_index_jobs`；不得在协作 store 热路径调用 embedding 或概念模型。
 - 版本恢复只接受服务端 operationId，在 `Document.saveMutex` 与 restore gate 内执行；collab 不创建业务 operation，持久化失败必须向 Hocuspocus 抛出并关闭对应 room，不能让未落库正文继续编辑。
 - 未接入共享 Yjs 同步前，restore 开启时部署副本固定为 1；`COLLAB_REPLICA_COUNT` 只是声明值，发布流程仍需核对平台真实副本数。
 - 活动 actor 只能取 `onChange.context` 的认证结果；`onStoreDocument.lastContext` 只负责本轮 snapshot 保存，禁止用于归属防抖窗口内的所有编辑。活动 tracker 使用镜像 Y.Doc，在 actor 边界/store 时投影并通过 begin/commit/rollback drain 与保存事务保持一致。
@@ -109,6 +113,7 @@ src/
 
 规则:
 - Worker 处理派生数据和 AI 工作流。
+- `jobs/knowledge-indexing.ts` 消费 tenant-scoped durable job；`knowledge-similarity.ts` 维护 document `similar_to` 边；`knowledge-concepts.ts` 校验原文引文后写概念、mentions、关系和合并提议。结构化日志只记录 ID、计数、错误类型和重试策略。
 - 媒体 GC 跨 tenant 扫描过期上传、孤儿媒体和持久化删除任务；对象存储删除必须使用媒体记录自身的 bucket/key，通过 media 行锁、任务状态、租约恢复和指数退避保证并发安全与可重试，并拒绝无法证明物理释放的版本化 bucket。
 - 正文版本空闲封存位于 `jobs/document-version-idle-seal.ts`：默认在最后一次有效正文保存 120 秒后扫描 current open auto，以 document 行锁和锁后二次验证避免与 API/collab 保存竞态；`0` 表示关闭。
 - 正文版本 retention 位于 `jobs/document-version-retention.ts`，默认 dry-run；删除必须二次验证保护集合，并在无 version/activity/operation 引用时释放 revision 及 `document_revision` media usage。pending operation expiry 可由 API 状态查询、collab executor 或 Worker 收敛。
@@ -119,6 +124,7 @@ src/
 
 - `contracts` 是跨端类型的唯一来源，禁止在 app 内重复定义接口类型。
 - `db` 是数据 schema 的唯一来源。开发阶段只使用 `push/reset/studio`，不生成 migration 文件。
+- `knowledge` 是索引端和查询端共享算法的唯一来源，不得导入 db/app，也不得在 API 与 Worker 复制中文分词、chunk 或 RRF 规则。
 - `db` 的开发期 seed 脚本放在 `packages/db/src/scripts/seed.ts`，不得在 app 启动时自动 seed。
 - `i18n` 是前端国际化唯一导入边界；业务组件只从 `@sharebrain/i18n` 导入 `m/getLocale/setLocale`，不直接导入 `src/paraglide` 生成目录。
 - 翻译源只维护 `messages/zh-CN.json` 和 `messages/en-US.json`；`packages/i18n/src/paraglide/` 和 `apps/web/src/paraglide/` 是 Paraglide 自动生成物，禁止手改。
