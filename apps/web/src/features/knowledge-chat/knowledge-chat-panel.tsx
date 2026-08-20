@@ -1,10 +1,13 @@
 // 渲染跨路由常驻的知识聊天面板、会话历史、引用解释与反馈交互。
-import type {
-  AiCitation,
-  AiConversation,
-  AiFeedback,
-  AiMessage,
-  KnowledgeScope,
+import {
+  AI_CHAT_ATTACHMENT_MEDIA_TYPES,
+  isSupportedChatAttachment,
+  type AiCitation,
+  type AiConversation,
+  type AiFeedback,
+  type AiMessage,
+  type AiRunStep,
+  type KnowledgeScope,
 } from "@sharebrain/contracts";
 import { m } from "@sharebrain/i18n";
 import {
@@ -52,23 +55,52 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { apiRequest, queryKeys } from "../../lib/api-client";
-import { runtimeEnv } from "../../lib/runtime-env";
 import { retryKnowledgeChat, streamKnowledgeChat } from "./knowledge-chat.client";
 import { uploadKnowledgeChatAttachment } from "./knowledge-chat-attachment";
+import { ChatAttachmentList, type ChatAttachmentView } from "./knowledge-chat-attachment-view";
+import { ChatMarkdown } from "./knowledge-chat-markdown";
+import { ChatSteps } from "./knowledge-chat-steps";
+import { ChatStreamBuffer } from "./knowledge-chat-stream-buffer";
 import { useKnowledgeChatStore } from "./knowledge-chat.store";
 
 type ConversationsResponse = { items: AiConversation[]; nextCursor: string | null };
 type MessagesResponse = { items: AiMessage[]; nextCursor: string | null };
+/** 正文不放这里：它每帧都在变，交给 ChatStreamBuffer，只有正在输出的气泡订阅。 */
 type OptimisticTurn = {
   userText: string;
-  assistantText: string;
   citations: AiCitation[];
   scope: KnowledgeScope | null;
+  steps: AiRunStep[];
   attachments: AttachmentDraft[];
 };
+
+/** 距底部超过这个距离就认为用户在回看历史，流式输出不再抢滚动条。 */
+const STICK_TO_BOTTOM_PX = 120;
+
+const ATTACHMENT_ACCEPT = AI_CHAT_ATTACHMENT_MEDIA_TYPES
+  .map((prefix) => (prefix.endsWith("/") ? `${prefix}*` : prefix))
+  .join(",");
+
+/** 步骤按 kind 覆盖写入，同一步骤的 running -> complete 不会堆成两行。 */
+function mergeStep(steps: AiRunStep[], step: AiRunStep): AiRunStep[] {
+  const index = steps.findIndex((item) => item.kind === step.kind);
+  if (index < 0) return [...steps, step];
+  const next = [...steps];
+  next[index] = step;
+  return next;
+}
 type PendingScopeChoice = {
   message: string;
   projects: KnowledgeScope["ambiguousProjects"];
@@ -165,6 +197,7 @@ function KnowledgeChatSurface({
   const abortRef = useRef<AbortController | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
+  const streamBuffer = useMemo(() => new ChatStreamBuffer(), []);
 
   const conversations = useInfiniteQuery({
     queryKey: queryKeys.aiConversations,
@@ -222,11 +255,12 @@ function KnowledgeChatSurface({
       attachment.status === "ready" && attachment.mediaObjectId);
     setStreaming(true);
     setStreamError(null);
+    streamBuffer.reset();
     setOptimistic({
       userText: message,
-      assistantText: "",
       citations: [],
       scope: null,
+      steps: [],
       attachments: readyAttachments,
     });
     setAttachments([]);
@@ -246,19 +280,24 @@ function KnowledgeChatSurface({
         onScope(scope) {
           setOptimistic((current) => current ? { ...current, scope } : current);
         },
+        onStep(step) {
+          setOptimistic((current) => current
+            ? { ...current, steps: mergeStep(current.steps, step) }
+            : current);
+        },
         onCitations(citations) {
           setOptimistic((current) => current ? { ...current, citations } : current);
         },
+        // 正文绕开 React state：缓冲区按帧释放，面板与会话列表不参与重渲染。
         onText(delta) {
-          setOptimistic((current) => current
-            ? { ...current, assistantText: current.assistantText + delta }
-            : current);
+          streamBuffer.push(delta);
         },
         onError(error) {
           customError = error.message;
           setStreamError(error.message);
         },
       }, controller.signal);
+      streamBuffer.flush();
       if (!customError) setOptimistic(null);
     } catch (error) {
       if (!controller.signal.aborted) {
@@ -313,7 +352,11 @@ function KnowledgeChatSurface({
   const addAttachments = (files: FileList | null) => {
     if (!files) return;
     const available = Math.max(0, 8 - attachments.length);
-    for (const file of Array.from(files).slice(0, available)) {
+    // 模型读不了的类型在这里就挡住，不让它走到 provider 转换阶段把整条回答带崩。
+    const supported = Array.from(files).filter((file) =>
+      isSupportedChatAttachment(file.type || "application/octet-stream"));
+    if (supported.length < files.length) setStreamError(m.chat_attachment_unsupported());
+    for (const file of supported.slice(0, available)) {
       const localId = crypto.randomUUID();
       const draft: AttachmentDraft = {
         localId,
@@ -401,6 +444,7 @@ function KnowledgeChatSurface({
           messages={[...(messages.data?.pages ?? [])].reverse().flatMap((page) => page.items)}
           loading={messages.isLoading}
           optimistic={optimistic}
+          streamBuffer={streamBuffer}
           hasOlder={messages.hasNextPage}
           loadingOlder={messages.isFetchingNextPage}
           onLoadOlder={() => messages.fetchNextPage()}
@@ -498,6 +542,7 @@ function KnowledgeChatSurface({
                 ref={attachmentInputRef}
                 type="file"
                 multiple
+                accept={ATTACHMENT_ACCEPT}
                 className="sr-only"
                 onChange={(event) => addAttachments(event.currentTarget.files)}
               />
@@ -622,6 +667,7 @@ function MessageList({
   messages,
   loading,
   optimistic,
+  streamBuffer,
   hasOlder,
   loadingOlder,
   onLoadOlder,
@@ -629,6 +675,7 @@ function MessageList({
   messages: AiMessage[];
   loading: boolean;
   optimistic: OptimisticTurn | null;
+  streamBuffer: ChatStreamBuffer;
   hasOlder: boolean;
   loadingOlder: boolean;
   onLoadOlder: () => Promise<unknown>;
@@ -637,23 +684,32 @@ function MessageList({
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const latestSequence = messages.at(-1)?.sequence ?? null;
   const previousLatestSequence = useRef<number | null>(null);
+  const viewport = () => scrollAreaRef.current
+    ?.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']") ?? null;
+  /**
+   * 只有用户本来就贴着底部时才跟随。直接写 scrollTop 而不是 scrollIntoView：
+   * 后者会启动一次平滑滚动动画，逐帧调用等于持续与用户的滚动打架。
+   */
+  const stickToBottom = useCallback(() => {
+    const element = viewport();
+    if (!element) return;
+    const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+    if (distance > STICK_TO_BOTTOM_PX) return;
+    element.scrollTop = element.scrollHeight;
+  }, []);
   useEffect(() => {
-    if (
-      previousLatestSequence.current === null ||
-      previousLatestSequence.current !== latestSequence ||
-      optimistic
-    ) {
+    if (previousLatestSequence.current !== latestSequence || optimistic) {
       bottomRef.current?.scrollIntoView({ block: "end" });
     }
     previousLatestSequence.current = latestSequence;
-  }, [latestSequence, optimistic, optimistic?.assistantText]);
+  }, [latestSequence, optimistic]);
   const loadOlder = async () => {
-    const viewport = scrollAreaRef.current?.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']");
-    const previousHeight = viewport?.scrollHeight ?? 0;
-    const previousTop = viewport?.scrollTop ?? 0;
+    const element = viewport();
+    const previousHeight = element?.scrollHeight ?? 0;
+    const previousTop = element?.scrollTop ?? 0;
     await onLoadOlder();
     requestAnimationFrame(() => {
-      if (viewport) viewport.scrollTop = previousTop + viewport.scrollHeight - previousHeight;
+      if (element) element.scrollTop = previousTop + element.scrollHeight - previousHeight;
     });
   };
   return (
@@ -676,12 +732,21 @@ function MessageList({
         {messages.map((message) => <ChatMessage key={message.id} message={message} />)}
         {optimistic ? (
           <>
-            <ChatText role="user" text={optimistic.userText} attachments={optimistic.attachments} />
             <ChatText
-              role="assistant"
-              text={optimistic.assistantText || m.chat_thinking()}
+              role="user"
+              text={optimistic.userText}
+              attachments={optimistic.attachments.map((attachment) => ({
+                mediaObjectId: attachment.mediaObjectId,
+                fileName: attachment.fileName,
+                mimeType: attachment.mimeType,
+              }))}
+            />
+            <StreamingAnswer
+              buffer={streamBuffer}
               citations={optimistic.citations}
               scope={optimistic.scope}
+              steps={optimistic.steps}
+              onGrow={stickToBottom}
             />
           </>
         ) : null}
@@ -691,13 +756,49 @@ function MessageList({
   );
 }
 
-function ChatMessage({ message }: { message: AiMessage }) {
+/**
+ * 正在流式输出的回答。只有它订阅缓冲区，因此每帧重渲染被限制在这一棵子树里，
+ * 会话列表、历史消息和输入框都不受影响。
+ */
+function StreamingAnswer({
+  buffer,
+  citations,
+  scope,
+  steps,
+  onGrow,
+}: {
+  buffer: ChatStreamBuffer;
+  citations: AiCitation[];
+  scope: KnowledgeScope | null;
+  steps: AiRunStep[];
+  onGrow: () => void;
+}) {
+  const text = useSyncExternalStore(buffer.subscribe, buffer.getSnapshot);
+  // 在浏览器绘制之前跟随，避免先看到内容再看到滚动跳一下。
+  useLayoutEffect(onGrow, [text, steps, citations, onGrow]);
+  return (
+    <ChatText
+      role="assistant"
+      // 工作过程一旦开始推送就由它交代进度，不再额外占一行"正在检索"。
+      text={text || (steps.length > 0 ? "" : m.chat_thinking())}
+      citations={citations}
+      steps={steps}
+      {...(steps.length > 0 ? {} : { scope })}
+    />
+  );
+}
+
+// 历史消息用 memo 隔离：流式期间面板会因步骤更新重渲染多次，历史条目不该跟着走一遍。
+const ChatMessage = memo(function ChatMessage({ message }: { message: AiMessage }) {
   const queryClient = useQueryClient();
-  const [retryText, setRetryText] = useState<string | null>(null);
+  const [retryActive, setRetryActive] = useState(false);
   const [retryCitations, setRetryCitations] = useState<AiCitation[]>(message.citations);
+  const [retrySteps, setRetrySteps] = useState<AiRunStep[]>([]);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   const retryAbortRef = useRef<AbortController | null>(null);
+  const retryBuffer = useMemo(() => new ChatStreamBuffer(), []);
+  const retryText = useSyncExternalStore(retryBuffer.subscribe, retryBuffer.getSnapshot);
   useEffect(() => () => retryAbortRef.current?.abort(), []);
   const text = message.parts.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n");
   const error = message.parts.find((part) => part.type === "error");
@@ -708,25 +809,31 @@ function ChatMessage({ message }: { message: AiMessage }) {
     const controller = new AbortController();
     retryAbortRef.current = controller;
     setRetrying(true);
-    setRetryText("");
+    setRetryActive(true);
+    retryBuffer.reset();
     setRetryCitations([]);
+    setRetrySteps([]);
     setRetryError(null);
     let streamFailed = false;
     try {
       await retryKnowledgeChat(message.runId, {
+        onStep(step) {
+          setRetrySteps((current) => mergeStep(current, step));
+        },
         onCitations(citations) {
           setRetryCitations(citations);
         },
         onText(delta) {
-          setRetryText((current) => (current ?? "") + delta);
+          retryBuffer.push(delta);
         },
         onError(streamError) {
           streamFailed = true;
           setRetryError(streamError.message);
         },
       }, controller.signal);
+      retryBuffer.flush();
       await queryClient.invalidateQueries({ queryKey: queryKeys.aiMessages(message.conversationId) });
-      if (!streamFailed) setRetryText(null);
+      if (!streamFailed) setRetryActive(false);
     } catch (retryFailure) {
       if (!controller.signal.aborted) {
         setRetryError(retryFailure instanceof Error ? retryFailure.message : m.chat_error());
@@ -741,26 +848,23 @@ function ChatMessage({ message }: { message: AiMessage }) {
     <ChatText
       messageId={message.id}
       role={message.role}
-      text={retryText !== null
+      text={retryActive
         ? retryText || m.chat_retrying()
         : text || (error?.type === "error" ? error.message : "")}
-      citations={retryText !== null ? retryCitations : message.citations}
-      failed={message.status === "failed" && retryText === null}
+      citations={retryActive ? retryCitations : message.citations}
+      steps={retryActive ? retrySteps : message.steps}
+      failed={message.status === "failed" && !retryActive}
       retrying={retrying}
       retryError={retryError}
       attachments={attachments.map((attachment) => ({
-        localId: attachment.mediaObjectId,
         mediaObjectId: attachment.mediaObjectId,
         fileName: attachment.fileName,
         mimeType: attachment.mimeType,
-        byteSize: attachment.byteSize,
-        progress: 100,
-        status: "ready",
       }))}
       {...(message.runId && message.status === "failed" ? { onRetry: () => void retry() } : {})}
     />
   );
-}
+});
 
 function ChatText({
   messageId,
@@ -768,6 +872,7 @@ function ChatText({
   text,
   citations = [],
   scope,
+  steps = [],
   failed = false,
   retrying = false,
   retryError,
@@ -779,11 +884,12 @@ function ChatText({
   text: string;
   citations?: AiCitation[];
   scope?: KnowledgeScope | null;
+  steps?: AiRunStep[];
   failed?: boolean;
   retrying?: boolean;
   retryError?: string | null;
   onRetry?: () => void;
-  attachments?: AttachmentDraft[];
+  attachments?: ChatAttachmentView[];
 }) {
   const feedback = useMutation({
     mutationFn: (value: AiFeedback) => apiRequest<{ ok: boolean }>(
@@ -795,45 +901,26 @@ function ChatText({
     return (
       <div className="ml-auto grid max-w-[88%] gap-2 rounded-md bg-muted px-3 py-2 text-[13px] leading-6 whitespace-pre-wrap break-words">
         <span>{text}</span>
-        {attachments.map((attachment) => (
-          <a
-            key={attachment.localId}
-            className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-            href={attachment.mediaObjectId
-              ? `${runtimeEnv.WEB_PUBLIC_API_BASE_URL}/api/media/${attachment.mediaObjectId}/raw`
-              : undefined}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <File className="size-3.5 shrink-0" />
-            <span className="truncate">{attachment.fileName}</span>
-          </a>
-        ))}
+        <ChatAttachmentList attachments={attachments} />
       </div>
     );
   }
   return (
     <article className="min-w-0">
-      <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
-          <Bot className="size-3.5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] leading-6 whitespace-pre-wrap break-words">{text}</p>
-          {failed ? <p className="mt-1 text-xs text-destructive">{m.chat_failed()}</p> : null}
-        </div>
-      </div>
+      {steps.length > 0 ? <ChatSteps steps={steps} /> : null}
+      <ChatMarkdown text={text} />
+      {failed ? <p className="mt-1 text-xs text-destructive">{m.chat_failed()}</p> : null}
       {scope ? (
-        <p className="mt-2 ml-8 text-[10px] leading-4 text-muted-foreground">
+        <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
           {scope.ambiguousProjects.length > 1
             ? m.chat_scope_ambiguous({ count: scope.ambiguousProjects.length })
             : m.chat_scope_resolved({ name: scope.projectName ?? m.chat_scope_global() })}
         </p>
       ) : null}
       {citations.length > 0 ? <CitationList citations={citations} /> : null}
-      {retryError ? <p className="mt-2 ml-8 text-xs text-destructive">{retryError}</p> : null}
+      {retryError ? <p className="mt-2 text-xs text-destructive">{retryError}</p> : null}
       {messageId || onRetry ? (
-        <div className="mt-2 ml-8 flex items-center gap-1">
+        <div className="mt-2 flex items-center gap-1">
           {onRetry ? (
             <Button type="button" variant="ghost" size="sm" disabled={retrying} onClick={onRetry}>
               <RotateCcw />
@@ -859,7 +946,7 @@ function ChatText({
 function CitationList({ citations }: { citations: AiCitation[] }) {
   const projects = new Set(citations.map((citation) => citation.projectId));
   return (
-    <details className="mt-3 ml-8 rounded-md border border-border bg-muted/20">
+    <details className="mt-3 rounded-md border border-border bg-muted/20">
       <summary className="cursor-pointer list-none px-3 py-2 text-[11px] font-medium text-muted-foreground">
         {m.chat_citations_summary({ count: citations.length, projects: projects.size })}
       </summary>

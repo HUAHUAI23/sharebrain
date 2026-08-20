@@ -86,11 +86,33 @@ type GraphExpansionLink = {
   viaConceptIds?: string[];
 };
 
+// 管线自己汇报各阶段规模，调用方不去解析 trace 的形状。
+export type KnowledgeRetrievalStats = {
+  ftsCount: number;
+  vectorCount: number;
+  conceptCount: number;
+  graphCount: number;
+  citationCount: number;
+  projectCount: number;
+  tokenCount: number;
+};
+
 export type KnowledgeRetrievalResult = {
   scope: KnowledgeScope;
   citations: AiCitation[];
   context: string;
+  stats: KnowledgeRetrievalStats;
   trace: Record<string, unknown>;
+};
+
+const EMPTY_RETRIEVAL_STATS: KnowledgeRetrievalStats = {
+  ftsCount: 0,
+  vectorCount: 0,
+  conceptCount: 0,
+  graphCount: 0,
+  citationCount: 0,
+  projectCount: 0,
+  tokenCount: 0,
 };
 
 export async function resolveKnowledgeScope(
@@ -226,7 +248,13 @@ export async function retrieveKnowledge(
   const visible = await visibleProjects(db, auth);
   const visibleIds = visible.map((project) => project.id);
   if (visibleIds.length === 0) {
-    return { scope: input.scope, citations: [], context: "", trace: { channels: {} } };
+    return {
+      scope: input.scope,
+      citations: [],
+      context: "",
+      stats: EMPTY_RETRIEVAL_STATS,
+      trace: { channels: {} },
+    };
   }
 
   const tiers: Array<{ tier: "active_project" | "tenant_global"; projectId: string | null }> = [];
@@ -240,6 +268,7 @@ export async function retrieveKnowledge(
   const queryEmbedding = await embedQuery(env, input.query);
   const fused: RetrievalCandidate[] = [];
   const channelTrace: Record<string, unknown> = {};
+  const recalled = { ftsCount: 0, vectorCount: 0, conceptCount: 0 };
   for (const tier of tiers) {
     const fts = await recallFts(db, auth.tenantId, visibleIds, input.query, tier);
     const vector = queryEmbedding
@@ -286,6 +315,9 @@ export async function retrieveKnowledge(
       }))
       .sort((left, right) => right.rrfScore - left.rrfScore);
     fused.push(...ranked);
+    recalled.ftsCount += fts.length;
+    recalled.vectorCount += vector.length;
+    recalled.conceptCount += concept.length;
     channelTrace[tier.tier] = {
       fts: traceCandidates(fts),
       vector: traceCandidates(vector),
@@ -329,6 +361,13 @@ export async function retrieveKnowledge(
     scope: input.scope,
     citations,
     context,
+    stats: {
+      ...recalled,
+      graphCount: selected.filter((candidate) => candidate.tier === "graph_expanded").length,
+      citationCount: citations.length,
+      projectCount: new Set(citations.map((citation) => citation.projectId)).size,
+      tokenCount: selected.reduce((total, candidate) => total + candidate.tokenCount, 0),
+    },
     trace: {
       queryChars: input.query.length,
       scope: input.scope,

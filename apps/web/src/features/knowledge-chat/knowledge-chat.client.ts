@@ -3,6 +3,7 @@ import type {
   AiAssistantRun,
   AiCitation,
   AiChatRequest,
+  AiRunStep,
   KnowledgeScope,
 } from "@sharebrain/contracts";
 
@@ -12,6 +13,7 @@ import { runtimeEnv } from "../../lib/runtime-env";
 export type KnowledgeChatStreamHandlers = {
   onRun?: (run: Pick<AiAssistantRun, "id" | "status">) => void;
   onScope?: (scope: KnowledgeScope) => void;
+  onStep?: (step: AiRunStep) => void;
   onCitations?: (citations: AiCitation[]) => void;
   onText?: (delta: string) => void;
   onFinish?: (usage: Record<string, unknown>) => void;
@@ -95,6 +97,8 @@ export function dispatchUiStreamLine(
     handlers.onRun?.(chunk.data as Pick<AiAssistantRun, "id" | "status">);
   } else if (chunk.type === "data-scope") {
     handlers.onScope?.(chunk.data as KnowledgeScope);
+  } else if (chunk.type === "data-step") {
+    handlers.onStep?.(chunk.data as AiRunStep);
   } else if (chunk.type === "data-citations") {
     handlers.onCitations?.(chunk.data as AiCitation[]);
   } else if (chunk.type === "text-delta" && typeof chunk.delta === "string") {

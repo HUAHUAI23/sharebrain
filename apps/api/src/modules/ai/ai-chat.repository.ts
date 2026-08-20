@@ -1,10 +1,12 @@
 // 封装多轮会话、消息 parts、引用、run/step、反馈与 trace 的事务性持久化。
-import type {
-  AiCitation,
-  AiFeedback,
-  AiMessagePart,
-  AuthContext,
-  KnowledgeScope,
+import {
+  AI_RUN_STEP_KINDS,
+  type AiCitation,
+  type AiFeedback,
+  type AiMessagePart,
+  type AiRunStep,
+  type AuthContext,
+  type KnowledgeScope,
 } from "@sharebrain/contracts";
 import { upsertMediaUsageWithClient, type DatabaseClient } from "@sharebrain/db";
 import {
@@ -359,20 +361,11 @@ export class AiChatRepository {
         updatedAt: now,
         updatedBy: auth.userId,
       }).where(eq(aiAssistantRuns.id, candidate.id)).returning();
+      // 重跑一律从空的工作过程开始，避免上一次尝试的步骤和这一次混在一起。
       await tx.delete(aiRunSteps).where(and(
         eq(aiRunSteps.runId, candidate.id),
         eq(aiRunSteps.tenantId, auth.tenantId),
       ));
-      await tx.insert(aiRunSteps).values({
-        tenantId: auth.tenantId,
-        runId,
-        stepIndex: 0,
-        kind: "retrieval",
-        status: "running",
-        startedAt: now,
-        createdBy: auth.userId,
-        updatedBy: auth.userId,
-      });
       return claimed ?? null;
     });
     if (!run) throw new ApiError("RUN_NOT_READY", "回答任务当前不可执行。", 409);
@@ -385,7 +378,6 @@ export class AiChatRepository {
     leaseId: string,
     assistantMessageId: string,
     input: {
-      metadata: Record<string, unknown>;
       citations: AiCitation[];
       trace: Record<string, unknown>;
     },
@@ -434,29 +426,49 @@ export class AiChatRepository {
         target: aiRetrievalTraces.messageId,
         set: { stages: input.trace, updatedAt: now, updatedBy: auth.userId },
       });
-      await tx.update(aiRunSteps).set({
-        status: "complete",
-        metadata: input.metadata,
-        completedAt: now,
-        updatedAt: now,
-        updatedBy: auth.userId,
-      }).where(and(
-        eq(aiRunSteps.runId, runId),
-        eq(aiRunSteps.tenantId, auth.tenantId),
-        eq(aiRunSteps.stepIndex, 0),
-      ));
-      await tx.insert(aiRunSteps).values({
-        tenantId: auth.tenantId,
-        runId,
-        stepIndex: 1,
-        kind: "generation",
-        status: "running",
-        startedAt: now,
-        createdBy: auth.userId,
-        updatedBy: auth.userId,
-      }).onConflictDoNothing();
       return true;
     });
+  }
+
+  // 步骤索引由 kind 在契约里的位置决定，天然稳定，可以直接当 upsert 键用。
+  async recordRunStep(auth: AuthContext, runId: string, step: AiRunStep, now = new Date()) {
+    const stepIndex = AI_RUN_STEP_KINDS.indexOf(step.kind);
+    if (stepIndex < 0) return;
+    const completedAt = step.status === "running" ? null : now;
+    await this.db.insert(aiRunSteps).values({
+      tenantId: auth.tenantId,
+      runId,
+      stepIndex,
+      kind: step.kind,
+      status: step.status,
+      metadata: { ...step.detail, ...(step.durationMs === null ? {} : { durationMs: step.durationMs }) },
+      startedAt: now,
+      completedAt,
+      createdBy: auth.userId,
+      updatedBy: auth.userId,
+    }).onConflictDoUpdate({
+      target: [aiRunSteps.runId, aiRunSteps.stepIndex],
+      set: {
+        status: step.status,
+        metadata: { ...step.detail, ...(step.durationMs === null ? {} : { durationMs: step.durationMs }) },
+        completedAt,
+        updatedAt: now,
+        updatedBy: auth.userId,
+      },
+    });
+  }
+
+  async readRunSteps(auth: AuthContext, runIds: string[]) {
+    if (runIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(aiRunSteps)
+      .where(and(
+        eq(aiRunSteps.tenantId, auth.tenantId),
+        inArray(aiRunSteps.runId, runIds),
+        isNull(aiRunSteps.deletedAt),
+      ))
+      .orderBy(asc(aiRunSteps.runId), asc(aiRunSteps.stepIndex));
   }
 
   async claimRecoverableRuns(input: {

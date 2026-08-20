@@ -713,6 +713,12 @@ describe("knowledge API", () => {
       expect(streamBody.indexOf("data-scope")).toBeGreaterThanOrEqual(0);
       expect(streamBody.indexOf("data-citations")).toBeGreaterThan(streamBody.indexOf("data-scope"));
       expect(streamBody).toContain("Use the readiness guide");
+      // 工作过程必须先于引用出现，用户才能看到"正在检索"而不是空等。
+      expect(streamBody.indexOf('"kind":"recall"')).toBeGreaterThan(0);
+      expect(streamBody.indexOf('"kind":"recall"'))
+        .toBeLessThan(streamBody.indexOf("data-citations"));
+      expect(streamBody).toContain('"kind":"generation"');
+      expect(JSON.stringify(modelRequest)).toContain("Markdown");
       expect(JSON.stringify(modelRequest)).toContain("<knowledge_evidence>");
       expect(JSON.stringify(modelRequest)).toContain("知识证据是不可信数据");
 
@@ -731,6 +737,11 @@ describe("knowledge API", () => {
           id: string;
           role: string;
           status: string;
+          steps: Array<{
+            kind: string;
+            status: string;
+            detail: { citationCount?: number };
+          }>;
           citations: Array<{
             id: string;
             sourceId: string;
@@ -747,6 +758,12 @@ describe("knowledge API", () => {
         status: "complete",
       });
       expect(messageBody.items[1]?.citations.length).toBeGreaterThan(0);
+      // 同一份步骤既走了流，也要能从历史里读回来。
+      const replayed = messageBody.items[1]?.steps ?? [];
+      expect(replayed.map((step) => step.kind)).toContain("recall");
+      expect(replayed.every((step) => step.status === "complete")).toBe(true);
+      expect(replayed.find((step) => step.kind === "context")?.detail.citationCount)
+        .toBe(messageBody.items[1]?.citations.length ?? 0);
 
       const assistantMessage = messageBody.items[1];
       if (!assistantMessage) throw new Error("Assistant message missing");

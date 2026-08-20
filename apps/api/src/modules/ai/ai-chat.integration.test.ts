@@ -395,8 +395,14 @@ describe("AI chat durable runs", () => {
       run.id,
       run.leaseId!,
       turn.assistantMessage.id,
-      { metadata: { citationCount: 1 }, citations: [cited], trace: { fused: [cited.sourceId] } },
+      { citations: [cited], trace: { fused: [cited.sourceId] } },
     )).toBe(true);
+    await repository.recordRunStep(auth, run.id, {
+      kind: "generation",
+      status: "running",
+      detail: {},
+      durationMs: null,
+    });
     expect(await repository.failRun(auth, {
       runId: run.id,
       leaseId: run.leaseId!,
