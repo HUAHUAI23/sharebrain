@@ -33,7 +33,8 @@ export function createAiRoutes() {
 
   app.post("/api/ai/chat", zValidator("json", aiChatRequestSchema), async (context) => {
     const service = new AiChatService(context.var.db, context.var.env);
-    return service.streamChat(context.var.auth, context.req.valid("json"));
+    // 客户端断开或点"停止"时一并中止 provider 调用，不再空烧 token。
+    return service.streamChat(context.var.auth, context.req.valid("json"), context.req.raw.signal);
   });
 
   app.post("/api/ai/scope", zValidator("json", aiChatRequestSchema), async (context) => {
@@ -91,7 +92,7 @@ export function createAiRoutes() {
   app.post("/api/ai/runs/:runId/retry", async (context) => {
     const service = new AiChatService(context.var.db, context.var.env);
     const runId = parseJson(z.string().uuid(), context.req.param("runId"));
-    return service.retryRun(context.var.auth, runId);
+    return service.retryRun(context.var.auth, runId, context.req.raw.signal);
   });
 
   return app;

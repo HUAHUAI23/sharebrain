@@ -76,7 +76,7 @@ export class AiChatService {
     this.storage = storage ?? new StorageService(env);
   }
 
-  async streamChat(auth: AuthContext, input: AiChatRequest) {
+  async streamChat(auth: AuthContext, input: AiChatRequest, signal?: AbortSignal) {
     this.requireConfiguredModel();
     const scope = await resolveKnowledgeScope(this.db, this.env, auth, {
       message: input.message,
@@ -106,10 +106,10 @@ export class AiChatService {
       query: input.message,
       scope,
       includeCrossProject: input.includeCrossProject,
-    });
+    }, signal);
   }
 
-  async retryRun(auth: AuthContext, runId: string) {
+  async retryRun(auth: AuthContext, runId: string, signal?: AbortSignal) {
     this.requireConfiguredModel();
     const retry = await this.repository.retryInput(auth, runId);
     const visible = await visibleProjects(this.db, auth);
@@ -126,7 +126,7 @@ export class AiChatService {
         ambiguousProjects: [],
       },
       includeCrossProject: retry.includeCrossProject,
-    });
+    }, signal);
   }
 
   async resolveScope(auth: AuthContext, input: AiChatRequest) {
@@ -340,6 +340,7 @@ export class AiChatService {
     leaseId: string,
     steps: RunStepTrail,
     sink: RunStreamSink = {},
+    signal?: AbortSignal,
   ): Promise<RunOutcome> {
     let text = "";
     let stage: AiRunStepKind = "recall";
@@ -393,6 +394,7 @@ export class AiChatService {
         maxOutputTokens: this.env.AI_MAX_OUTPUT_TOKENS,
         system: buildSystemPrompt(retrieval.context),
         messages: history,
+        ...(signal ? { abortSignal: signal } : {}),
         // 接管 SDK 默认的 console.error(error)，它会把 prompt 与 provider 原始响应打进日志。
         onError: ({ error }) => logProviderError(plan.runId, error),
       });
@@ -402,6 +404,16 @@ export class AiChatService {
       }
       sink.onTextEnd?.();
       const usage = serializeUsage(await result.usage);
+      // 推理模型可能把 max_tokens 全部花在思考上，正常结束却一个字都没产出。
+      // 静默写入空回答会让界面看起来"卡住"，这里明确报出来。
+      if (text.trim().length === 0) {
+        throw new ApiError(
+          "AI_EMPTY_COMPLETION",
+          "模型没有返回任何内容，可能是输出预算被推理耗尽。",
+          500,
+          { finishReason: await result.finishReason },
+        );
+      }
       const didComplete = await this.repository.completeRun(auth, {
         runId: plan.runId,
         leaseId,
@@ -422,9 +434,13 @@ export class AiChatService {
       });
       return { status: "complete", usage };
     } catch (error) {
-      const failure = stage === "generation"
-        ? { code: "AI_GENERATION_FAILED", message: "回答生成中断，请重试。" }
-        : { code: "RETRIEVAL_FAILED", message: "知识检索失败，请稍后重试。" };
+      const failure = signal?.aborted
+        ? { code: "AI_GENERATION_STOPPED", message: "已停止生成。" }
+        : error instanceof ApiError && error.code === "AI_EMPTY_COMPLETION"
+          ? { code: error.code, message: error.message }
+          : stage === "generation"
+            ? { code: "AI_GENERATION_FAILED", message: "回答生成中断，请重试。" }
+            : { code: "RETRIEVAL_FAILED", message: "知识检索失败，请稍后重试。" };
       await steps.fail(stage);
       const didFail = await this.repository.failRun(auth, {
         runId: plan.runId,
@@ -445,7 +461,7 @@ export class AiChatService {
     }
   }
 
-  private createRunStream(auth: AuthContext, plan: RunPlan) {
+  private createRunStream(auth: AuthContext, plan: RunPlan, signal?: AbortSignal) {
     const stream = createUIMessageStream({
       execute: async ({ writer }) => {
         const steps = new RunStepTrail(
@@ -467,7 +483,7 @@ export class AiChatService {
           onTextStart: () => writer.write({ type: "text-start", id: plan.assistantMessageId }),
           onDelta: (delta) => writer.write({ type: "text-delta", id: plan.assistantMessageId, delta }),
           onTextEnd: () => writer.write({ type: "text-end", id: plan.assistantMessageId }),
-        });
+        }, signal);
         if (outcome.status === "complete") {
           writer.write({ type: "data-finish", data: { usage: outcome.usage } });
           return;

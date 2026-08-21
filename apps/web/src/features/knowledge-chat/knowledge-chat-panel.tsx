@@ -36,7 +36,7 @@ import {
   TooltipTrigger,
 } from "@sharebrain/ui/components/tooltip";
 import { useIsMobile } from "@sharebrain/ui/hooks/use-mobile";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMatchRoute, useNavigate } from "@tanstack/react-router";
 import {
   Bot,
@@ -50,6 +50,7 @@ import {
   Plus,
   RotateCcw,
   Send,
+  Square,
   ThumbsDown,
   ThumbsUp,
   Trash2,
@@ -73,6 +74,7 @@ import { ChatAttachmentList, type ChatAttachmentView } from "./knowledge-chat-at
 import { ChatMarkdown } from "./knowledge-chat-markdown";
 import { ChatSteps } from "./knowledge-chat-steps";
 import { ChatStreamBuffer } from "./knowledge-chat-stream-buffer";
+import { useChatPanelWidth } from "./knowledge-chat-resize";
 import { useKnowledgeChatStore } from "./knowledge-chat.store";
 
 type ConversationsResponse = { items: AiConversation[]; nextCursor: string | null };
@@ -123,6 +125,7 @@ export function KnowledgeChatPanel() {
   const open = useKnowledgeChatStore((state) => state.open);
   const setOpen = useKnowledgeChatStore((state) => state.setOpen);
   const toggleOpen = useKnowledgeChatStore((state) => state.toggleOpen);
+  const { width, resizing, startResize } = useChatPanelWidth();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -167,7 +170,19 @@ export function KnowledgeChatPanel() {
           </SheetContent>
         </Sheet>
       ) : open ? (
-        <aside className="fixed top-3 right-3 bottom-3 z-40 w-[min(410px,calc(100vw-24px))] overflow-hidden rounded-md border border-border bg-background shadow-xl">
+        <aside
+          className="fixed top-3 right-3 bottom-3 z-40 overflow-hidden rounded-lg border border-border bg-background shadow-lg"
+          style={{ width }}
+        >
+          {/* 左边缘拖拽把手。命中区 8px，视觉只有 1px，不打扰正文。 */}
+          <div
+            className="absolute inset-y-0 left-0 z-10 w-2 cursor-col-resize touch-none before:absolute before:inset-y-0 before:left-0 before:w-px before:bg-transparent hover:before:bg-border data-[resizing=true]:before:bg-foreground/20"
+            data-resizing={resizing}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={m.chat_resize()}
+            onPointerDown={startResize}
+          />
           <KnowledgeChatSurface activeProjectId={activeProjectId} onClose={() => setOpen(false)} />
         </aside>
       ) : null}
@@ -222,11 +237,10 @@ function KnowledgeChatSurface({
         : false;
     },
   });
-  const project = useQuery({
-    queryKey: queryKeys.project(activeProjectId ?? "global"),
-    queryFn: () => apiRequest<{ id: string; name: string }>(`/api/projects/${activeProjectId}`),
-    enabled: Boolean(activeProjectId),
-  });
+
+  const activeConversationTitle = conversations.data?.pages
+    .flatMap((page) => page.items)
+    .find((item) => item.id === selectedConversationId)?.title ?? null;
 
   useEffect(() => {
     const firstConversation = conversations.data?.pages[0]?.items[0];
@@ -235,7 +249,8 @@ function KnowledgeChatSurface({
     }
   }, [conversations.data?.pages, optimistic, selectConversation, selectedConversationId]);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  // 刻意不在卸载时中止：关闭面板不该丢掉正在生成的回答，durable run 会把它写完，
+  // 重新打开时从 REST 历史读回。只有"停止"按钮才是用户明确的中止意图。
 
   const deleteConversation = useMutation({
     mutationFn: (conversationId: string) => apiRequest<{ ok: boolean }>(
@@ -386,8 +401,9 @@ function KnowledgeChatSurface({
 
   return (
     <>
-    <div className="grid h-full min-h-0 grid-rows-[52px_minmax(0,1fr)_auto] bg-background">
-      <header className="flex min-w-0 items-center gap-1 border-b border-border px-3">
+    <div className="grid h-full min-h-0 grid-rows-[44px_minmax(0,1fr)_auto] bg-background">
+      {/* 标题栏只留身份与动作：面板是什么已经由它出现的位置说明了，不需要头像和副标题。 */}
+      <header className="flex min-w-0 items-center gap-1 px-2">
         {showConversations ? (
           <Button
             type="button"
@@ -398,21 +414,12 @@ function KnowledgeChatSurface({
           >
             <ChevronLeft />
           </Button>
-        ) : (
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
-            <Bot className="size-4" />
-          </span>
-        )}
-        <div className="min-w-0 flex-1 px-1">
-          <h2 className="truncate text-[13px] font-semibold">
-            {showConversations ? m.chat_conversations() : m.chat_title()}
-          </h2>
-          {!showConversations ? (
-            <p className="truncate text-[11px] text-muted-foreground">
-              {activeProjectId ? project.data?.name ?? m.chat_scope_project() : m.chat_scope_global()}
-            </p>
-          ) : null}
-        </div>
+        ) : null}
+        <h2 className="min-w-0 flex-1 truncate px-1.5 text-[13px] font-medium">
+          {showConversations
+            ? m.chat_conversations()
+            : activeConversationTitle ?? m.chat_new_conversation()}
+        </h2>
         {!showConversations ? (
           <>
             <Button type="button" variant="ghost" size="icon-sm" aria-label={m.chat_new()} onClick={() => selectConversation(null)}>
@@ -563,15 +570,28 @@ function KnowledgeChatSurface({
                 />
                 <span className="truncate">{m.chat_cross_project()}</span>
               </label>
-              <Button
-                type="button"
-                size="icon-sm"
-                disabled={!draft.trim() || streaming || attachments.some((item) => item.status === "uploading")}
-                aria-label={m.chat_send()}
-                onClick={() => void send()}
-              >
-                <Send />
-              </Button>
+              {streaming ? (
+                // 生成中把发送位换成停止：模型久久不出字时用户得有出口，而不是干等。
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="secondary"
+                  aria-label={m.chat_stop()}
+                  onClick={() => abortRef.current?.abort()}
+                >
+                  <Square className="fill-current" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  disabled={!draft.trim() || attachments.some((item) => item.status === "uploading")}
+                  aria-label={m.chat_send()}
+                  onClick={() => void send()}
+                >
+                  <Send />
+                </Button>
+              )}
             </div>
           </div>
         </footer>
@@ -799,7 +819,7 @@ const ChatMessage = memo(function ChatMessage({ message }: { message: AiMessage 
   const retryAbortRef = useRef<AbortController | null>(null);
   const retryBuffer = useMemo(() => new ChatStreamBuffer(), []);
   const retryText = useSyncExternalStore(retryBuffer.subscribe, retryBuffer.getSnapshot);
-  useEffect(() => () => retryAbortRef.current?.abort(), []);
+
   const text = message.parts.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n");
   const error = message.parts.find((part) => part.type === "error");
   const attachments = message.parts.filter((part): part is Extract<AiMessage["parts"][number], { type: "attachment" }> =>
