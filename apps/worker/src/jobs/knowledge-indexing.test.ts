@@ -187,7 +187,9 @@ async function createProcessingJob(
     status: "processing",
     attempts: 1,
     nextAttemptAt: now,
-    processingAt: now,
+    // 租约新鲜度用真实时间：测试的 now 是固定的逻辑时刻，若拿它当 processingAt，
+    // 任何并发运行的 worker 都会把这条任务当成"卡死"回收，租约随之失效。
+    processingAt: new Date(),
     leaseId,
     createdBy: fixture.actorId,
     updatedBy: fixture.actorId,

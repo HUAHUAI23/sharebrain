@@ -348,6 +348,7 @@ export class AiChatRepository {
         inArray(aiAssistantRuns.status, ["queued", "failed"]),
         lte(aiAssistantRuns.nextAttemptAt, now),
         sql`${aiAssistantRuns.attempts} < ${aiAssistantRuns.maxAttempts}`,
+        eq(aiAssistantRuns.retryable, true),
         isNull(aiAssistantRuns.deletedAt),
       )).limit(1).for("update");
       if (!candidate) return null;
@@ -484,6 +485,7 @@ export class AiChatRepository {
         input.tenantId ? eq(aiAssistantRuns.tenantId, input.tenantId) : undefined,
         isNull(aiAssistantRuns.deletedAt),
         sql`${aiAssistantRuns.attempts} < ${aiAssistantRuns.maxAttempts}`,
+        eq(aiAssistantRuns.retryable, true),
         or(
           and(
             inArray(aiAssistantRuns.status, ["queued", "failed"]),
@@ -724,6 +726,7 @@ export class AiChatRepository {
       text: string;
       code: string;
       message: string;
+      retryable?: boolean;
     },
   ) {
     const now = new Date();
@@ -763,6 +766,7 @@ export class AiChatRepository {
         leaseId: null,
         errorCode: input.code,
         errorMessage: input.message.slice(0, 1000),
+        retryable: input.retryable ?? true,
         nextAttemptAt: new Date(now.getTime() + Math.min(30_000, 2 ** activeRun.attempts * 1_000)),
         updatedAt: now,
         updatedBy: auth.userId,
@@ -851,6 +855,7 @@ export class AiChatRepository {
         completedAt: null,
         errorCode: null,
         errorMessage: null,
+        retryable: true,
         nextAttemptAt: new Date(),
         updatedAt: new Date(),
         updatedBy: auth.userId,

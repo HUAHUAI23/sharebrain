@@ -434,13 +434,15 @@ export class AiChatService {
       });
       return { status: "complete", usage };
     } catch (error) {
+      // 停止是用户意图，空输出是配置问题：两者重跑都只会得到同样的结果，
+      // 标成终态，后台恢复循环不再碰它们（手动重试仍可穿透）。
       const failure = signal?.aborted
-        ? { code: "AI_GENERATION_STOPPED", message: "已停止生成。" }
+        ? { code: "AI_GENERATION_STOPPED", message: "已停止生成。", retryable: false }
         : error instanceof ApiError && error.code === "AI_EMPTY_COMPLETION"
-          ? { code: error.code, message: error.message }
+          ? { code: error.code, message: error.message, retryable: false }
           : stage === "generation"
-            ? { code: "AI_GENERATION_FAILED", message: "回答生成中断，请重试。" }
-            : { code: "RETRIEVAL_FAILED", message: "知识检索失败，请稍后重试。" };
+            ? { code: "AI_GENERATION_FAILED", message: "回答生成中断，请重试。", retryable: true }
+            : { code: "RETRIEVAL_FAILED", message: "知识检索失败，请稍后重试。", retryable: true };
       await steps.fail(stage);
       const didFail = await this.repository.failRun(auth, {
         runId: plan.runId,
@@ -449,6 +451,7 @@ export class AiChatService {
         text,
         code: failure.code,
         message: failure.message,
+        retryable: failure.retryable,
       });
       console.error(JSON.stringify({
         event: "ai.chat_run_failed",

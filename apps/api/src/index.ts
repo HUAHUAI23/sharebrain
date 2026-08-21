@@ -14,6 +14,9 @@ if (import.meta.main) {
   const server = Bun.serve({
     fetch: app.fetch,
     port: env.API_PORT,
+    // 默认 10 秒对流式回答远远不够：推理模型的首字延迟经常超过它，
+    // 连接会被服务器自己掐断，表现成"回答一直没动静然后失败"。
+    idleTimeout: env.API_IDLE_TIMEOUT_SECONDS,
   });
   const recoveryService = new AiChatService(dependencies.db, env);
   let stopped = false;

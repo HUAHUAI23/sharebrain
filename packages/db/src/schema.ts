@@ -719,10 +719,10 @@ export const documentBlocks = pgTable(
       .references(() => tenants.id),
     projectId: uuid("project_id")
       .notNull()
-      .references(() => projects.id),
+      .references(() => projects.id, { onDelete: "cascade" }),
     documentId: uuid("document_id")
       .notNull()
-      .references(() => documents.id),
+      .references(() => documents.id, { onDelete: "cascade" }),
     blockId: text("block_id").notNull(),
     blockType: text("block_type").notNull(),
     path: integer("path").array().notNull(),
@@ -744,7 +744,7 @@ export const searchItems = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id),
-    projectId: uuid("project_id").references(() => projects.id),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
     entityType: text("entity_type").notNull(),
     entityId: uuid("entity_id").notNull(),
     documentId: uuid("document_id"),
@@ -1164,6 +1164,8 @@ export const aiAssistantRuns = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     errorCode: text("error_code"),
     errorMessage: text("error_message"),
+    // 用户主动停止、模型明确空输出这类失败不该被后台恢复循环重跑。
+    retryable: boolean("retryable").notNull().default(true),
     request: jsonb("request")
       .$type<{ includeCrossProject?: boolean; requestId?: string }>()
       .notNull()

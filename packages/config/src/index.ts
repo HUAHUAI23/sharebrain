@@ -70,6 +70,8 @@ export const serverEnvSchema = {
   AI_RUN_PROCESSING_TIMEOUT_SECONDS: z.coerce.number().int().min(30).default(300),
   AI_RUN_RECOVERY_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(10),
   AI_RUN_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(3),
+  // Bun.serve 的空闲超时默认只有 10 秒，会在模型首字之前掐断 SSE。上限 255。
+  API_IDLE_TIMEOUT_SECONDS: z.coerce.number().int().min(10).max(255).default(240),
   AI_EMBEDDING_BASE_URL: z.string().url().optional().or(z.literal("")),
   AI_EMBEDDING_API_KEY: z.string().optional().or(z.literal("")),
   AI_EMBEDDING_MODEL: z.string().optional().or(z.literal("")),
