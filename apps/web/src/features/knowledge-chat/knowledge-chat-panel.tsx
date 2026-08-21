@@ -1,9 +1,11 @@
 // 渲染跨路由常驻的知识聊天面板、会话历史、引用解释与反馈交互。
 import {
   AI_CHAT_ATTACHMENT_MEDIA_TYPES,
+  isImageAttachment,
   isSupportedChatAttachment,
   type AiCitation,
   type AiConversation,
+  type AiChatDebugTrace,
   type AiFeedback,
   type AiMessage,
   type AiRunStep,
@@ -40,10 +42,9 @@ import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-q
 import { useMatchRoute, useNavigate } from "@tanstack/react-router";
 import {
   ArrowDown,
-  Bot,
   ChevronLeft,
   ExternalLink,
-  File,
+  File as FileIcon,
   History,
   MessageSquareText,
   PanelRightClose,
@@ -86,6 +87,8 @@ type OptimisticTurn = {
   citations: AiCitation[];
   scope: KnowledgeScope | null;
   steps: AiRunStep[];
+  usage: Record<string, unknown>;
+  debugTrace: AiChatDebugTrace | null;
   attachments: AttachmentDraft[];
 };
 
@@ -113,6 +116,7 @@ type AttachmentDraft = {
   byteSize: number;
   progress: number;
   status: "uploading" | "ready" | "failed";
+  previewUrl: string | null;
 };
 
 export function KnowledgeChatPanel() {
@@ -197,6 +201,8 @@ function KnowledgeChatSurface({
 }) {
   const queryClient = useQueryClient();
   const selectedConversationId = useKnowledgeChatStore((state) => state.selectedConversationId);
+  const newConversationRequested = useKnowledgeChatStore((state) => state.newConversationRequested);
+  const startNewConversation = useKnowledgeChatStore((state) => state.startNewConversation);
   const selectConversation = useKnowledgeChatStore((state) => state.selectConversation);
   const showConversations = useKnowledgeChatStore((state) => state.showConversations);
   const setShowConversations = useKnowledgeChatStore((state) => state.setShowConversations);
@@ -205,12 +211,25 @@ function KnowledgeChatSurface({
   const [streaming, setStreaming] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [optimistic, setOptimistic] = useState<OptimisticTurn | null>(null);
+  const [debugByRunId, setDebugByRunId] = useState<Record<string, AiChatDebugTrace>>({});
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pendingScopeChoice, setPendingScopeChoice] = useState<PendingScopeChoice | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const previewUrlsRef = useRef(new Set<string>());
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
   const streamBuffer = useMemo(() => new ChatStreamBuffer(), []);
+
+  const revokePreview = useCallback((previewUrl: string | null) => {
+    if (!previewUrl) return;
+    URL.revokeObjectURL(previewUrl);
+    previewUrlsRef.current.delete(previewUrl);
+  }, []);
+
+  useEffect(() => () => {
+    for (const previewUrl of previewUrlsRef.current) URL.revokeObjectURL(previewUrl);
+    previewUrlsRef.current.clear();
+  }, []);
 
   const conversations = useInfiniteQuery({
     queryKey: queryKeys.aiConversations,
@@ -242,10 +261,10 @@ function KnowledgeChatSurface({
 
   useEffect(() => {
     const firstConversation = conversations.data?.pages[0]?.items[0];
-    if (!selectedConversationId && !optimistic && firstConversation) {
+    if (!selectedConversationId && !optimistic && !newConversationRequested && firstConversation) {
       selectConversation(firstConversation.id);
     }
-  }, [conversations.data?.pages, optimistic, selectConversation, selectedConversationId]);
+  }, [conversations.data?.pages, newConversationRequested, optimistic, selectConversation, selectedConversationId]);
 
   // 刻意不在卸载时中止：关闭面板不该丢掉正在生成的回答，durable run 会把它写完，
   // 重新打开时从 REST 历史读回。只有"停止"按钮才是用户明确的中止意图。
@@ -265,6 +284,13 @@ function KnowledgeChatSurface({
   const runTurn = async (message: string, explicitProjectId?: string) => {
     const readyAttachments = attachments.filter((attachment) =>
       attachment.status === "ready" && attachment.mediaObjectId);
+    const readyAttachmentIds = new Set(readyAttachments.map((attachment) => attachment.localId));
+    // 未上传成功的附件不会进入消息，丢弃输入态时必须同步释放它们的本地预览。
+    for (const attachment of attachments) {
+      if (!readyAttachmentIds.has(attachment.localId)) revokePreview(attachment.previewUrl);
+    }
+    // 上一次交接失败时乐观消息仍可能存在；新一轮发送会替换它，避免遗留 Blob URL。
+    for (const attachment of optimistic?.attachments ?? []) revokePreview(attachment.previewUrl);
     setStreaming(true);
     setStreamError(null);
     streamBuffer.reset();
@@ -273,12 +299,16 @@ function KnowledgeChatSurface({
       citations: [],
       scope: null,
       steps: [],
+      usage: {},
+      debugTrace: null,
       attachments: readyAttachments,
     });
     setAttachments([]);
     const controller = new AbortController();
     abortRef.current = controller;
     let conversationId: string | null = selectedConversationId;
+    let runId: string | null = null;
+    let debugTrace: AiChatDebugTrace | null = null;
     try {
       await streamKnowledgeChat({
         ...(selectedConversationId ? { conversationId: selectedConversationId } : {}),
@@ -292,6 +322,7 @@ function KnowledgeChatSurface({
         // 服务端明确告知会话 id，新会话不再靠时间戳猜。
         onRun(run) {
           conversationId = run.conversationId;
+          runId = run.id;
         },
         onScope(scope) {
           setOptimistic((current) => current ? { ...current, scope } : current);
@@ -303,6 +334,13 @@ function KnowledgeChatSurface({
         },
         onCitations(citations) {
           setOptimistic((current) => current ? { ...current, citations } : current);
+        },
+        onDebug(trace) {
+          debugTrace = trace;
+          setOptimistic((current) => current ? { ...current, debugTrace: trace } : current);
+        },
+        onFinish(usage) {
+          setOptimistic((current) => current ? { ...current, usage } : current);
         },
         // 正文绕开 React state：缓冲区按帧释放，面板与会话列表不参与重渲染。
         onText(delta) {
@@ -322,7 +360,12 @@ function KnowledgeChatSurface({
       setStreaming(false);
       // 先把服务端消息灌进缓存，确认替代内容已经在手，再撤掉本地流式态。
       // 反过来做会出现一段空窗：回答已经从界面消失，REST 还没回来。
-      await handoffToServer(conversationId ?? selectedConversationId);
+      await handoffToServer(
+        conversationId ?? selectedConversationId,
+        readyAttachments.flatMap((attachment) => attachment.previewUrl ? [attachment.previewUrl] : []),
+        runId,
+        debugTrace,
+      );
     }
   };
 
@@ -330,7 +373,12 @@ function KnowledgeChatSurface({
    * 流式结束后的交接。乐观态只有在服务端消息确实进了缓存之后才清除，
    * 因此界面上不存在"回答先消失、过一会儿再出现"的中间态。
    */
-  const handoffToServer = async (conversationId: string | null) => {
+  const handoffToServer = async (
+    conversationId: string | null,
+    previewUrls: string[],
+    runId: string | null,
+    debugTrace: AiChatDebugTrace | null,
+  ) => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations });
     if (!conversationId) {
       // 拿不到会话 id 时宁可留着本地结果，也不要把回答抹掉。
@@ -344,7 +392,11 @@ function KnowledgeChatSurface({
         pages: [page],
         pageParams: [""],
       });
+      if (runId && debugTrace) {
+        setDebugByRunId((current) => ({ ...current, [runId]: debugTrace }));
+      }
       if (conversationId !== selectedConversationId) selectConversation(conversationId);
+      for (const previewUrl of previewUrls) revokePreview(previewUrl);
       setOptimistic(null);
     } catch {
       // 保留本地流结果，下一次成功刷新会以 REST 历史替换它。
@@ -371,7 +423,7 @@ function KnowledgeChatSurface({
     }
   };
 
-  const addAttachments = (files: FileList | null) => {
+  const addAttachments = (files: FileList | File[] | null) => {
     if (!files) return;
     const available = Math.max(0, 8 - attachments.length);
     // 模型读不了的类型在这里就挡住，不让它走到 provider 转换阶段把整条回答带崩。
@@ -379,18 +431,26 @@ function KnowledgeChatSurface({
       isSupportedChatAttachment(file.type || "application/octet-stream"));
     if (supported.length < files.length) setStreamError(m.chat_attachment_unsupported());
     for (const file of supported.slice(0, available)) {
+      const uploadFile = file.name
+        ? file
+        : new globalThis.File([file], isImageAttachment(file.type) ? "pasted-image.png" : "pasted-file", {
+            type: file.type,
+            lastModified: file.lastModified,
+          });
       const localId = crypto.randomUUID();
       const draft: AttachmentDraft = {
         localId,
         mediaObjectId: null,
-        fileName: file.name,
-        mimeType: file.type || "application/octet-stream",
-        byteSize: file.size,
+        fileName: uploadFile.name,
+        mimeType: uploadFile.type || "application/octet-stream",
+        byteSize: uploadFile.size,
         progress: 0,
         status: "uploading",
+        previewUrl: isImageAttachment(uploadFile.type) ? URL.createObjectURL(uploadFile) : null,
       };
+      if (draft.previewUrl) previewUrlsRef.current.add(draft.previewUrl);
       setAttachments((current) => [...current, draft]);
-      void uploadKnowledgeChatAttachment(file, (progress) => {
+      void uploadKnowledgeChatAttachment(uploadFile, (progress) => {
         setAttachments((current) => current.map((item) =>
           item.localId === localId ? { ...item, progress } : item));
       }).then((media) => {
@@ -398,9 +458,11 @@ function KnowledgeChatSurface({
           ? { ...item, mediaObjectId: media.id, progress: 100, status: "ready" }
           : item));
       }).catch(() => {
-        setAttachments((current) => current.map((item) => item.localId === localId
-          ? { ...item, status: "failed" }
-          : item));
+        setAttachments((current) => current.map((item) => {
+          if (item.localId !== localId) return item;
+          revokePreview(item.previewUrl);
+          return { ...item, previewUrl: null, status: "failed" };
+        }));
       });
     }
     if (attachmentInputRef.current) attachmentInputRef.current.value = "";
@@ -429,7 +491,23 @@ function KnowledgeChatSurface({
         </h2>
         {!showConversations ? (
           <>
-            <Button type="button" variant="ghost" size="icon-sm" aria-label={m.chat_new()} onClick={() => selectConversation(null)}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={m.chat_new()}
+              disabled={streaming}
+              onClick={() => {
+                for (const attachment of optimistic?.attachments ?? []) revokePreview(attachment.previewUrl);
+                startNewConversation();
+                setDraft("");
+                setPendingScopeChoice(null);
+                setStreamError(null);
+                for (const attachment of attachments) revokePreview(attachment.previewUrl);
+                setAttachments([]);
+                setOptimistic(null);
+              }}
+            >
               <Plus />
             </Button>
             <Button type="button" variant="ghost" size="icon-sm" aria-label={m.chat_conversations()} onClick={() => setShowConversations(true)}>
@@ -449,7 +527,11 @@ function KnowledgeChatSurface({
           hasMore={conversations.hasNextPage}
           loadingMore={conversations.isFetchingNextPage}
           selectedId={selectedConversationId}
-          onSelect={selectConversation}
+          onSelect={(conversationId) => {
+            for (const attachment of optimistic?.attachments ?? []) revokePreview(attachment.previewUrl);
+            setOptimistic(null);
+            selectConversation(conversationId);
+          }}
           onDelete={setPendingDeleteId}
           onLoadMore={() => void conversations.fetchNextPage()}
         />
@@ -459,6 +541,7 @@ function KnowledgeChatSurface({
           loading={messages.isLoading}
           optimistic={optimistic}
           streamBuffer={streamBuffer}
+          debugByRunId={debugByRunId}
           hasOlder={messages.hasNextPage}
           loadingOlder={messages.isFetchingNextPage}
           onLoadOlder={() => messages.fetchNextPage()}
@@ -515,7 +598,7 @@ function KnowledgeChatSurface({
                     key={attachment.localId}
                     className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-sm bg-muted px-2 py-1 text-[11px]"
                   >
-                    <File className="size-3.5 shrink-0" />
+                    <FileIcon className="size-3.5 shrink-0" />
                     <span className="max-w-44 truncate">{attachment.fileName}</span>
                     <span className="shrink-0 text-muted-foreground">
                       {attachment.status === "uploading"
@@ -528,8 +611,11 @@ function KnowledgeChatSurface({
                       type="button"
                       className="grid size-4 shrink-0 place-items-center border-0 bg-transparent text-muted-foreground hover:text-foreground"
                       aria-label={m.chat_attachment_remove()}
-                      onClick={() => setAttachments((current) =>
-                        current.filter((item) => item.localId !== attachment.localId))}
+                      onClick={() => {
+                        revokePreview(attachment.previewUrl);
+                        setAttachments((current) =>
+                          current.filter((item) => item.localId !== attachment.localId));
+                      }}
                     >
                       <X className="size-3" />
                     </button>
@@ -544,6 +630,20 @@ function KnowledgeChatSurface({
               aria-label={m.chat_placeholder()}
               disabled={streaming}
               onChange={(event) => setDraft(event.target.value)}
+              onPaste={(event) => {
+                const itemFiles = Array.from(event.clipboardData.items)
+                  .filter((item) => item.kind === "file")
+                  .map((item) => item.getAsFile())
+                  .filter((file): file is globalThis.File => file !== null);
+                const pastedFiles = itemFiles.length > 0
+                  ? itemFiles
+                  : Array.from(event.clipboardData.files);
+                const hasSupportedFile = pastedFiles.some((file) =>
+                  isSupportedChatAttachment(file.type || "application/octet-stream"));
+                if (!hasSupportedFile || attachments.length >= 8) return;
+                event.preventDefault();
+                addAttachments(pastedFiles);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
@@ -695,6 +795,7 @@ function MessageList({
   loading,
   optimistic,
   streamBuffer,
+  debugByRunId,
   hasOlder,
   loadingOlder,
   onLoadOlder,
@@ -703,6 +804,7 @@ function MessageList({
   loading: boolean;
   optimistic: OptimisticTurn | null;
   streamBuffer: ChatStreamBuffer;
+  debugByRunId: Record<string, AiChatDebugTrace>;
   hasOlder: boolean;
   loadingOlder: boolean;
   onLoadOlder: () => Promise<unknown>;
@@ -732,30 +834,38 @@ function MessageList({
         ) : null}
         {loading ? <p className="py-10 text-center text-sm text-muted-foreground">{m.common_loading()}</p> : null}
         {!loading && messages.length === 0 && !optimistic ? (
-          <div className="grid min-h-72 place-content-center gap-3 text-center">
-            <span className="mx-auto flex size-10 items-center justify-center rounded-md border border-border bg-muted/50">
-              <Bot className="size-5" />
-            </span>
+          <div className="grid min-h-72 place-content-center text-center">
             <p className="text-sm font-medium">{m.chat_empty_title()}</p>
           </div>
         ) : null}
-        {messages.map((message) => <ChatMessage key={message.id} message={message} />)}
+        {messages.map((message) => (
+          <ChatMessage
+            key={message.id}
+            message={message}
+            {...(message.runId && debugByRunId[message.runId]
+              ? { debug: debugByRunId[message.runId] }
+              : {})}
+          />
+        ))}
         {optimistic ? (
           <>
             <ChatText
               role="user"
               text={optimistic.userText}
               attachments={optimistic.attachments.map((attachment) => ({
-                mediaObjectId: attachment.mediaObjectId,
-                fileName: attachment.fileName,
-                mimeType: attachment.mimeType,
-              }))}
+              mediaObjectId: attachment.mediaObjectId,
+              fileName: attachment.fileName,
+              mimeType: attachment.mimeType,
+              previewUrl: attachment.previewUrl,
+            }))}
             />
             <StreamingAnswer
               buffer={streamBuffer}
               citations={optimistic.citations}
               scope={optimistic.scope}
               steps={optimistic.steps}
+              usage={optimistic.usage}
+              debug={optimistic.debugTrace}
             />
           </>
         ) : null}
@@ -785,11 +895,15 @@ function StreamingAnswer({
   citations,
   scope,
   steps,
+  usage,
+  debug,
 }: {
   buffer: ChatStreamBuffer;
   citations: AiCitation[];
   scope: KnowledgeScope | null;
   steps: AiRunStep[];
+  usage: Record<string, unknown>;
+  debug: AiChatDebugTrace | null;
 }) {
   const text = useSyncExternalStore(buffer.subscribe, buffer.getSnapshot);
   return (
@@ -799,17 +913,27 @@ function StreamingAnswer({
       text={text || (steps.length > 0 ? "" : m.chat_thinking())}
       citations={citations}
       steps={steps}
+      usage={usage}
+      debug={debug}
       {...(steps.length > 0 ? {} : { scope })}
     />
   );
 }
 
 // 历史消息用 memo 隔离：流式期间面板会因步骤更新重渲染多次，历史条目不该跟着走一遍。
-const ChatMessage = memo(function ChatMessage({ message }: { message: AiMessage }) {
+const ChatMessage = memo(function ChatMessage({
+  message,
+  debug,
+}: {
+  message: AiMessage;
+  debug?: AiChatDebugTrace;
+}) {
   const queryClient = useQueryClient();
   const [retryActive, setRetryActive] = useState(false);
   const [retryCitations, setRetryCitations] = useState<AiCitation[]>(message.citations);
   const [retrySteps, setRetrySteps] = useState<AiRunStep[]>([]);
+  const [retryUsage, setRetryUsage] = useState<Record<string, unknown>>({});
+  const [retryDebug, setRetryDebug] = useState<AiChatDebugTrace | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   const retryAbortRef = useRef<AbortController | null>(null);
@@ -829,6 +953,8 @@ const ChatMessage = memo(function ChatMessage({ message }: { message: AiMessage 
     retryBuffer.reset();
     setRetryCitations([]);
     setRetrySteps([]);
+    setRetryUsage({});
+    setRetryDebug(null);
     setRetryError(null);
     let streamFailed = false;
     try {
@@ -838,6 +964,12 @@ const ChatMessage = memo(function ChatMessage({ message }: { message: AiMessage 
         },
         onCitations(citations) {
           setRetryCitations(citations);
+        },
+        onFinish(usage) {
+          setRetryUsage(usage);
+        },
+        onDebug(trace) {
+          setRetryDebug(trace);
         },
         onText(delta) {
           retryBuffer.push(delta);
@@ -869,6 +1001,9 @@ const ChatMessage = memo(function ChatMessage({ message }: { message: AiMessage 
         : text || (error?.type === "error" ? error.message : "")}
       citations={retryActive ? retryCitations : message.citations}
       steps={retryActive ? retrySteps : message.steps}
+      usage={retryActive ? retryUsage : message.usage}
+      // 重试结束后仍保留本次临时调试追踪；服务端历史不会落库 debug 数据。
+      debug={retryActive ? retryDebug : retryDebug ?? debug ?? null}
       failed={message.status === "failed" && !retryActive}
       retrying={retrying}
       retryError={retryError}
@@ -889,6 +1024,8 @@ function ChatText({
   citations = [],
   scope,
   steps = [],
+  usage = {},
+  debug = null,
   failed = false,
   retrying = false,
   retryError,
@@ -901,17 +1038,29 @@ function ChatText({
   citations?: AiCitation[];
   scope?: KnowledgeScope | null;
   steps?: AiRunStep[];
+  usage?: Record<string, unknown>;
+  debug?: AiChatDebugTrace | null;
   failed?: boolean;
   retrying?: boolean;
   retryError?: string | null;
   onRetry?: () => void;
   attachments?: ChatAttachmentView[];
 }) {
+  const [feedbackVote, setFeedbackVote] = useState<AiFeedback["vote"] | null>(null);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const feedback = useMutation({
     mutationFn: (value: AiFeedback) => apiRequest<{ ok: boolean }>(
       `/api/ai/messages/${messageId}/feedback`,
       { method: "POST", body: value },
     ),
+    onMutate(value) {
+      setFeedbackVote(value.vote);
+      setFeedbackError(null);
+    },
+    onError(error) {
+      setFeedbackVote(null);
+      setFeedbackError(error instanceof Error ? error.message : m.chat_feedback_error());
+    },
   });
   if (role === "user") {
     return (
@@ -923,7 +1072,8 @@ function ChatText({
   }
   return (
     <article className="min-w-0">
-      {steps.length > 0 ? <ChatSteps steps={steps} /> : null}
+      {steps.length > 0 ? <ChatSteps steps={steps} usage={usage} /> : null}
+      {debug ? <DebugTraceDetails trace={debug} /> : null}
       <ChatMarkdown text={text} />
       {failed ? <p className="mt-1 text-xs text-destructive">{m.chat_failed()}</p> : null}
       {scope ? (
@@ -945,17 +1095,86 @@ function ChatText({
           ) : null}
           {messageId ? (
             <>
-          <Button type="button" variant="ghost" size="icon-xs" aria-label={m.feedback_up()} onClick={() => feedback.mutate({ vote: "up" })}>
-            <ThumbsUp />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={m.feedback_up()}
+            aria-pressed={feedbackVote === "up"}
+            className={feedbackVote === "up"
+              ? "bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+              : undefined}
+            disabled={feedback.isPending}
+            onClick={() => feedback.mutate({ vote: "up" })}
+          >
+            <ThumbsUp className={feedbackVote === "up" ? "fill-current" : undefined} />
           </Button>
-          <Button type="button" variant="ghost" size="icon-xs" aria-label={m.feedback_down()} onClick={() => feedback.mutate({ vote: "down" })}>
-            <ThumbsDown />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={m.feedback_down()}
+            aria-pressed={feedbackVote === "down"}
+            className={feedbackVote === "down"
+              ? "bg-rose-500/10 text-rose-700 hover:bg-rose-500/20 dark:text-rose-300"
+              : undefined}
+            disabled={feedback.isPending}
+            onClick={() => feedback.mutate({ vote: "down" })}
+          >
+            <ThumbsDown className={feedbackVote === "down" ? "fill-current" : undefined} />
           </Button>
             </>
           ) : null}
         </div>
       ) : null}
+      {feedbackError ? <p className="mt-1 text-[11px] text-destructive">{feedbackError}</p> : null}
     </article>
+  );
+}
+
+function DebugTraceDetails({ trace }: { trace: AiChatDebugTrace }) {
+  return (
+    <details className="mt-2 rounded-sm border border-dashed border-border/70 text-[11px]">
+      <summary className="cursor-pointer px-2 py-1.5 text-muted-foreground hover:bg-muted/40">
+        {m.chat_debug_details({ level: trace.level })}
+      </summary>
+      <div className="grid gap-2 border-t border-border/60 p-2">
+        {trace.queryTerms?.length ? (
+          <DebugValue label={m.chat_debug_query_terms()} value={trace.queryTerms.join(" · ")} />
+        ) : null}
+        {trace.query ? <DebugValue label={m.chat_debug_query()} value={trace.query} /> : null}
+        {trace.tsQuery ? <DebugValue label={m.chat_debug_ts_query()} value={trace.tsQuery} /> : null}
+        {trace.retrievalTrace ? (
+          <DebugValue
+            label={m.chat_debug_retrieval_trace()}
+            value={JSON.stringify(trace.retrievalTrace, null, 2)}
+            pre
+          />
+        ) : null}
+        {trace.context ? <DebugValue label={m.chat_debug_context()} value={trace.context} pre /> : null}
+        {trace.systemPrompt ? <DebugValue label={m.chat_debug_system_prompt()} value={trace.systemPrompt} pre /> : null}
+        {trace.history?.length ? (
+          <DebugValue
+            label={m.chat_debug_history()}
+            value={trace.history.map((item) => `[${item.role}]\n${item.content}`).join("\n\n")}
+            pre
+          />
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function DebugValue({ label, value, pre = false }: { label: string; value: string; pre?: boolean }) {
+  return (
+    <div className="grid gap-0.5">
+      <span className="font-medium text-foreground">{label}</span>
+      {pre ? (
+        <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/40 p-1.5 font-mono text-[10px] leading-4">
+          {value}
+        </pre>
+      ) : <span className="break-words text-muted-foreground">{value}</span>}
+    </div>
   );
 }
 
@@ -975,11 +1194,21 @@ function CitationList({ citations }: { citations: AiCitation[] }) {
 
 function CitationCard({ citation }: { citation: AiCitation }) {
   const navigate = useNavigate();
+  const [feedbackVote, setFeedbackVote] = useState<AiFeedback["vote"] | null>(null);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const feedback = useMutation({
     mutationFn: (value: AiFeedback) => apiRequest<{ ok: boolean }>(
       `/api/ai/citations/${citation.id}/feedback`,
       { method: "POST", body: value },
     ),
+    onMutate(value) {
+      setFeedbackVote(value.vote);
+      setFeedbackError(null);
+    },
+    onError(error) {
+      setFeedbackVote(null);
+      setFeedbackError(error instanceof Error ? error.message : m.chat_feedback_error());
+    },
   });
   const tier = citation.tier === "active_project"
     ? m.chat_tier_active()
@@ -1025,13 +1254,36 @@ function CitationCard({ citation }: { citation: AiCitation }) {
         </p>
       ) : null}
       <div className="mt-1.5 flex justify-end gap-1">
-        <Button type="button" variant="ghost" size="icon-xs" aria-label={m.feedback_up()} onClick={() => feedback.mutate({ vote: "up" })}>
-          <ThumbsUp />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={m.feedback_up()}
+          aria-pressed={feedbackVote === "up"}
+          className={feedbackVote === "up"
+            ? "bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+            : undefined}
+          disabled={feedback.isPending}
+          onClick={() => feedback.mutate({ vote: "up" })}
+        >
+          <ThumbsUp className={feedbackVote === "up" ? "fill-current" : undefined} />
         </Button>
-        <Button type="button" variant="ghost" size="icon-xs" aria-label={m.feedback_down()} onClick={() => feedback.mutate({ vote: "down", reason: "irrelevant" })}>
-          <ThumbsDown />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={m.feedback_down()}
+          aria-pressed={feedbackVote === "down"}
+          className={feedbackVote === "down"
+            ? "bg-rose-500/10 text-rose-700 hover:bg-rose-500/20 dark:text-rose-300"
+            : undefined}
+          disabled={feedback.isPending}
+          onClick={() => feedback.mutate({ vote: "down", reason: "irrelevant" })}
+        >
+          <ThumbsDown className={feedbackVote === "down" ? "fill-current" : undefined} />
         </Button>
       </div>
+      {feedbackError ? <p className="mt-1 text-[11px] text-destructive">{feedbackError}</p> : null}
     </article>
   );
 }

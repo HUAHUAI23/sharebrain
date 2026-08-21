@@ -16,7 +16,10 @@ function stepDetail(step: AiRunStep): string | null {
   const detail = step.detail;
   switch (step.kind) {
     case "scope":
-      return detail.projectName ?? m.chat_scope_global();
+      return [
+        detail.projectName ?? m.chat_scope_global(),
+        detail.resolution ? scopeResolutionLabel(detail.resolution) : null,
+      ].filter(Boolean).join(" · ");
     case "recall":
       return step.status === "running" ? null : m.chat_step_recall_detail({
         fts: detail.ftsCount ?? 0,
@@ -28,11 +31,27 @@ function stepDetail(step: AiRunStep): string | null {
     case "context":
       return step.status === "running" ? null : m.chat_step_context_detail({
         count: detail.citationCount ?? 0,
+        projects: detail.projectCount ?? 0,
         tokens: detail.tokenCount ?? 0,
       });
     default:
       return null;
   }
+}
+
+function scopeResolutionLabel(resolution: NonNullable<AiRunStep["detail"]["resolution"]>) {
+  switch (resolution) {
+    case "route": return m.chat_scope_resolution_route();
+    case "explicit": return m.chat_scope_resolution_explicit();
+    case "recent": return m.chat_scope_resolution_recent();
+    case "inferred": return m.chat_scope_resolution_inferred();
+    case "none": return m.chat_scope_resolution_none();
+  }
+}
+
+function usageNumber(usage: Record<string, unknown>, key: string) {
+  const value = usage[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 /** 进行中的步骤没有耗时可显示，用本地秒表补上，否则界面看起来就是卡死的。 */
@@ -71,7 +90,13 @@ function formatSeconds(ms: number) {
   return (ms / 1000).toFixed(1);
 }
 
-export const ChatSteps = memo(function ChatSteps({ steps }: { steps: AiRunStep[] }) {
+export const ChatSteps = memo(function ChatSteps({
+  steps,
+  usage = {},
+}: {
+  steps: AiRunStep[];
+  usage?: Record<string, unknown>;
+}) {
   const running = steps.some((step) => step.status === "running");
   const elapsed = useElapsedSeconds(running);
   if (steps.length === 0) return null;
@@ -80,6 +105,9 @@ export const ChatSteps = memo(function ChatSteps({ steps }: { steps: AiRunStep[]
   const totalMs = steps.reduce((total, step) => total + (step.durationMs ?? 0), 0);
   const current = [...steps].reverse().find((step) => step.status === "running");
   const sources = steps.find((step) => step.kind === "context")?.detail.citationCount ?? 0;
+  const inputTokens = usageNumber(usage, "inputTokens");
+  const outputTokens = usageNumber(usage, "outputTokens");
+  const totalTokens = usageNumber(usage, "totalTokens") || inputTokens + outputTokens;
 
   const summary = running
     ? m.chat_steps_running({ label: STEP_LABEL[current?.kind ?? "scope"](), seconds: String(elapsed) })
@@ -113,6 +141,11 @@ export const ChatSteps = memo(function ChatSteps({ steps }: { steps: AiRunStep[]
           );
         })}
       </ol>
+      {totalTokens > 0 ? (
+        <p className="mt-2 ml-2.5 text-[11px] text-muted-foreground">
+          {m.chat_token_usage({ input: String(inputTokens), output: String(outputTokens), total: String(totalTokens) })}
+        </p>
+      ) : null}
     </details>
   );
 });

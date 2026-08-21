@@ -2,6 +2,7 @@
 import type {
   AiAssistantRun,
   AiCitation,
+  AiChatDebugTrace,
   AiChatRequest,
   AiRunStep,
   KnowledgeScope,
@@ -15,6 +16,7 @@ export type KnowledgeChatStreamHandlers = {
   onScope?: (scope: KnowledgeScope) => void;
   onStep?: (step: AiRunStep) => void;
   onCitations?: (citations: AiCitation[]) => void;
+  onDebug?: (trace: AiChatDebugTrace) => void;
   onText?: (delta: string) => void;
   onFinish?: (usage: Record<string, unknown>) => void;
   onError?: (error: { code: string; message: string }) => void;
@@ -101,6 +103,8 @@ export function dispatchUiStreamLine(
     handlers.onStep?.(chunk.data as AiRunStep);
   } else if (chunk.type === "data-citations") {
     handlers.onCitations?.(chunk.data as AiCitation[]);
+  } else if (chunk.type === "data-debug") {
+    handlers.onDebug?.(chunk.data as AiChatDebugTrace);
   } else if (chunk.type === "text-delta" && typeof chunk.delta === "string") {
     handlers.onText?.(chunk.delta);
   } else if (chunk.type === "data-finish") {

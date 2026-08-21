@@ -64,6 +64,8 @@ export const serverEnvSchema = {
   AI_BASE_URL: z.string().url().optional().or(z.literal("")),
   AI_API_KEY: z.string().optional().or(z.literal("")),
   AI_MODEL: z.string().default("gpt-4o-mini"),
+  // 调试追踪只控制服务端是否向当前 SSE 请求发送诊断数据；生产环境会强制关闭。
+  AI_CHAT_DEBUG_TRACE: z.enum(["off", "safe", "full"]).default("off"),
   AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1).max(32768).default(4096),
   AI_CHAT_ATTACHMENT_MAX_BYTES: z.coerce.number().int().min(1).default(10 * 1024 * 1024),
   AI_RUN_RECOVERY_INTERVAL_SECONDS: z.coerce.number().int().min(1).max(3600).default(5),
@@ -88,6 +90,16 @@ export const serverEnvSchema = {
   KNOWLEDGE_JOB_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(10),
   KNOWLEDGE_JOB_PROCESSING_TIMEOUT_SECONDS: z.coerce.number().int().min(30).default(300),
 } as const;
+
+export const aiChatDebugTraceLevels = ["off", "safe", "full"] as const;
+export type AiChatDebugTraceLevel = (typeof aiChatDebugTraceLevels)[number];
+
+export function resolveAiChatDebugTrace(env: {
+  NODE_ENV: "development" | "test" | "production";
+  AI_CHAT_DEBUG_TRACE: AiChatDebugTraceLevel;
+}): AiChatDebugTraceLevel {
+  return env.NODE_ENV === "production" ? "off" : env.AI_CHAT_DEBUG_TRACE;
+}
 
 export function resolveEmbeddingConfig(env: ServerEnv) {
   return {

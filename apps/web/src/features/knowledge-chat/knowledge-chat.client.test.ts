@@ -46,6 +46,15 @@ describe("knowledge chat stream parser", () => {
     ]);
   });
 
+  test("dispatches optional debug trace without treating it as answer text", () => {
+    const traces: unknown[] = [];
+    dispatchUiStreamLine(
+      'data: {"type":"data-debug","data":{"level":"safe","queryTerms":["readiness","probe"]}}',
+      { onDebug: (trace) => traces.push(trace) },
+    );
+    expect(traces).toEqual([{ level: "safe", queryTerms: ["readiness", "probe"] }]);
+  });
+
   test("posts retry requests and parses chunked UI-message events", async () => {
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({

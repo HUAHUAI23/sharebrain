@@ -550,6 +550,7 @@ Tier A 下限是把"项目上下文权重更高"变成**确定性、可测试**�
 data-run        → { id, status }
 data-scope      → { activeProjectId, resolution, projectName }
 data-step       → { kind, status, detail, durationMs }   工作过程，逐步推送
+data-debug      → { level, ... }                          开发调试追踪（按环境变量开启）
 data-citations  → Citation[]（完整引用列表）
 text-start / text-delta ... / text-end                    正文流
 data-finish     → { usage }        或 data-error → { code, message }
@@ -598,6 +599,8 @@ assistant 消息在流结束时整体落库（含 citations）；流中断时以
 ### 工作过程
 
 回答上方是一条可折叠的工作过程栏，进行中自动展开、完成后自动折叠为"工作过程 N 步 · X.Xs"，点开可回看每一步的耗时与规模（三路召回各命中多少、图扩展补了几条、装配了几条证据多少 token）。这解决的是检索型助理最大的信任问题：用户看不到"它到底查了什么"，就无法判断答案该不该信。
+
+开发调试可通过 `AI_CHAT_DEBUG_TRACE=off|safe|full` 控制临时 `data-debug` 事件。默认 `off`；`safe` 只发送最多 8 个去停用词后的检索词；`full`（仅非生产且当前用户为 admin/auditor）额外发送原始问题、tsquery、检索候选/排序、模型上下文、system prompt 和历史消息。调试详情在前端默认折叠，且不写入会话历史；不会发送 SQL、向量内容或模型隐藏思考过程。生产环境无论配置为何均强制 `off`。
 
 折叠状态只在进行中被强制展开，结束后不再由代码控制，用户自己的展开/折叠选择得以保留。进行中的步骤没有耗时可显示，由前端本地秒表补上——模型迟迟不出字时，界面必须能区分"正在等"和"卡死了"。
 

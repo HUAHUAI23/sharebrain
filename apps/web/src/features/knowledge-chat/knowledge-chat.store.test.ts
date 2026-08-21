@@ -9,6 +9,7 @@ describe("knowledge chat store", () => {
       open: false,
       showConversations: false,
       selectedConversationId: null,
+      newConversationRequested: false,
     });
   });
 
@@ -22,5 +23,14 @@ describe("knowledge chat store", () => {
       selectedConversationId: "conversation-1",
     });
     expect("activeProjectId" in useKnowledgeChatStore.getState()).toBe(false);
+  });
+
+  test("keeps a user-created blank conversation from auto-selecting history", () => {
+    useKnowledgeChatStore.getState().startNewConversation();
+    expect(useKnowledgeChatStore.getState()).toMatchObject({
+      selectedConversationId: null,
+      newConversationRequested: true,
+      showConversations: false,
+    });
   });
 });

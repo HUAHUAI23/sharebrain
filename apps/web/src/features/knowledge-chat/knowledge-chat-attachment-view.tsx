@@ -10,6 +10,8 @@ export type ChatAttachmentView = {
   mediaObjectId: string | null;
   fileName: string;
   mimeType: string;
+  /** 乐观消息使用本地 Blob URL，服务端历史消息使用 mediaObjectId。 */
+  previewUrl?: string | null;
 };
 
 function rawUrl(mediaObjectId: string) {
@@ -25,7 +27,8 @@ export const ChatAttachmentList = memo(function ChatAttachmentList({
   return (
     <div className="grid gap-1.5">
       {attachments.map((attachment, index) => {
-        const href = attachment.mediaObjectId ? rawUrl(attachment.mediaObjectId) : undefined;
+        const href = attachment.previewUrl
+          ?? (attachment.mediaObjectId ? rawUrl(attachment.mediaObjectId) : undefined);
         if (isImageAttachment(attachment.mimeType) && href) {
           return (
             <a

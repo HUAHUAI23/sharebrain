@@ -1,11 +1,12 @@
 // 编排范围解析、知识检索、AI 流、durable run 以及历史引用的实时可见性降级。
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import type { ServerEnv } from "@sharebrain/config";
+import { resolveAiChatDebugTrace, type ServerEnv } from "@sharebrain/config";
 import {
   aiRunStepSchema,
   isSupportedChatAttachment,
   type AiChatRequest,
   type AiCitation,
+  type AiChatDebugTrace,
   type AiFeedback,
   type AiMessagePart,
   type AiMessage,
@@ -15,6 +16,7 @@ import {
   type KnowledgeScope,
 } from "@sharebrain/contracts";
 import type { DatabaseClient } from "@sharebrain/db";
+import { toSimpleTsQuery, tokenizeQueryTerms } from "@sharebrain/knowledge";
 import { aiAssistantRuns, auditLogs, documents, mediaObjects } from "@sharebrain/db/schema";
 import {
   APICallError,
@@ -58,6 +60,7 @@ type RunOutcome =
 type RunStreamSink = {
   onScope?: (scope: KnowledgeScope) => void;
   onCitations?: (citations: AiCitation[]) => void;
+  onDebug?: (trace: AiChatDebugTrace) => void;
   onTextStart?: () => void;
   onDelta?: (delta: string) => void;
   onTextEnd?: () => void;
@@ -384,6 +387,33 @@ export class AiChatService {
       stage = "generation";
       await steps.start("generation");
       const history = await this.modelHistory(auth, plan.conversationId);
+      const systemPrompt = buildSystemPrompt(retrieval.context);
+      const configuredDebugLevel = resolveAiChatDebugTrace(this.env);
+      // full 只给开发环境的管理员/审计员，避免测试或共享开发环境把 prompt 暴露给普通成员。
+      const debugLevel = configuredDebugLevel === "full"
+        && (auth.role === "admin" || auth.role === "auditor")
+        ? "full"
+        : configuredDebugLevel === "full" ? "safe" : configuredDebugLevel;
+      if (debugLevel !== "off") {
+        const terms = debugQueryTerms(plan.query);
+        sink.onDebug?.(debugLevel === "full"
+          ? {
+              level: "full",
+              query: plan.query,
+              queryTerms: terms,
+              tsQuery: toDebugTsQuery(plan.query),
+              retrievalTrace: retrieval.trace,
+              context: retrieval.context,
+              systemPrompt,
+              history: history.map((message) => ({
+                role: message.role === "user" || message.role === "assistant" || message.role === "system"
+                  ? message.role
+                  : "assistant",
+                content: modelMessageText(message),
+              })),
+            }
+          : { level: "safe", queryTerms: terms });
+      }
       const auditId = await this.writeAudit(auth, {
         conversationId: plan.conversationId,
         runId: plan.runId,
@@ -392,7 +422,7 @@ export class AiChatService {
       const result = streamText({
         model: this.createModel(),
         maxOutputTokens: this.env.AI_MAX_OUTPUT_TOKENS,
-        system: buildSystemPrompt(retrieval.context),
+        system: systemPrompt,
         messages: history,
         ...(signal ? { abortSignal: signal } : {}),
         // 接管 SDK 默认的 console.error(error)，它会把 prompt 与 provider 原始响应打进日志。
@@ -486,6 +516,7 @@ export class AiChatService {
         const outcome = await this.executeRun(auth, plan, run.leaseId, steps, {
           onScope: (scope) => writer.write({ type: "data-scope", data: scope }),
           onCitations: (citations) => writer.write({ type: "data-citations", data: citations }),
+          onDebug: (debug) => writer.write({ type: "data-debug", data: debug }),
           onTextStart: () => writer.write({ type: "text-start", id: plan.assistantMessageId }),
           onDelta: (delta) => writer.write({ type: "text-delta", id: plan.assistantMessageId, delta }),
           onTextEnd: () => writer.write({ type: "text-end", id: plan.assistantMessageId }),
@@ -689,6 +720,33 @@ function buildSystemPrompt(context: string) {
       ? `<knowledge_evidence>\n${context}\n</knowledge_evidence>`
       : "当前没有检索到可用知识证据。",
   ].join("\n\n");
+}
+
+function debugQueryTerms(query: string) {
+  // 单个无空格 token 也可能很长（例如粘贴整段标识符），调试栏只展示有限长度。
+  return tokenizeQueryTerms(query)
+    .slice(0, 8)
+    .map((term) => term.slice(0, 64));
+}
+
+function toDebugTsQuery(query: string) {
+  return toSimpleTsQuery(query, "any");
+}
+
+/** 只把可读文本和附件元数据放进 debug 流，避免把二进制附件编码后回传浏览器。 */
+function modelMessageText(message: ModelMessage): string {
+  if (typeof message.content === "string") return message.content;
+  return (message.content as unknown[]).map((part) => {
+    if (!part || typeof part !== "object") return "";
+    const value = part as Record<string, unknown>;
+    if (typeof value.text === "string") return value.text;
+    if (value.type === "file") {
+      const name = typeof value.filename === "string" ? value.filename : "attachment";
+      const mediaType = typeof value.mediaType === "string" ? value.mediaType : "file";
+      return `[附件: ${name} (${mediaType})]`;
+    }
+    return "";
+  }).filter(Boolean).join("\n");
 }
 
 /**

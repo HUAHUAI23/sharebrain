@@ -56,6 +56,21 @@ export const aiRunStepSchema = z.object({
   durationMs: z.number().int().min(0).nullable().default(null),
 });
 
+// 调试追踪按级别裁剪；full 仅用于非生产开发请求，不能代表模型的隐藏思考过程。
+export const aiChatDebugTraceSchema = z.object({
+  level: z.enum(["safe", "full"]),
+  queryTerms: z.array(z.string()).max(8).optional(),
+  tsQuery: z.string().optional(),
+  query: z.string().optional(),
+  retrievalTrace: z.record(z.string(), z.unknown()).optional(),
+  context: z.string().optional(),
+  systemPrompt: z.string().optional(),
+  history: z.array(z.object({
+    role: z.enum(["user", "assistant", "system"]),
+    content: z.string(),
+  })).optional(),
+});
+
 export const aiChatRequestSchema = z.object({
   conversationId: z.string().uuid().optional(),
   message: z.string().trim().min(1).max(100_000),
@@ -108,6 +123,7 @@ export const aiChatStreamEventSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("data-scope"), data: knowledgeScopeSchema }),
   z.object({ type: z.literal("data-step"), data: aiRunStepSchema }),
+  z.object({ type: z.literal("data-debug"), data: aiChatDebugTraceSchema }),
   z.object({ type: z.literal("data-citations"), data: z.array(aiCitationSchema) }),
   z.object({ type: z.literal("text-start"), id: z.string() }),
   z.object({ type: z.literal("text-delta"), id: z.string(), delta: z.string() }),
@@ -129,6 +145,7 @@ export const aiFeedbackSchema = z.object({
 
 export type AiMessagePart = z.infer<typeof aiMessagePartSchema>;
 export type AiRunStep = z.infer<typeof aiRunStepSchema>;
+export type AiChatDebugTrace = z.infer<typeof aiChatDebugTraceSchema>;
 export type AiRunStepKind = (typeof AI_RUN_STEP_KINDS)[number];
 export type AiChatRequest = z.infer<typeof aiChatRequestSchema>;
 export type AiConversation = z.infer<typeof aiConversationSchema>;
