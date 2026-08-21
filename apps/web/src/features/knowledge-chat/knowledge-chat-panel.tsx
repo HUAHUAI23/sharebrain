@@ -39,6 +39,7 @@ import { useIsMobile } from "@sharebrain/ui/hooks/use-mobile";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMatchRoute, useNavigate } from "@tanstack/react-router";
 import {
+  ArrowDown,
   Bot,
   ChevronLeft,
   ExternalLink,
@@ -75,6 +76,7 @@ import { ChatMarkdown } from "./knowledge-chat-markdown";
 import { ChatSteps } from "./knowledge-chat-steps";
 import { ChatStreamBuffer } from "./knowledge-chat-stream-buffer";
 import { useChatPanelWidth } from "./knowledge-chat-resize";
+import { useStickToBottom } from "./knowledge-chat-follow";
 import { useKnowledgeChatStore } from "./knowledge-chat.store";
 
 type ConversationsResponse = { items: AiConversation[]; nextCursor: string | null };
@@ -87,9 +89,6 @@ type OptimisticTurn = {
   steps: AiRunStep[];
   attachments: AttachmentDraft[];
 };
-
-/** 距底部超过这个距离就认为用户在回看历史，流式输出不再抢滚动条。 */
-const STICK_TO_BOTTOM_PX = 120;
 
 const ATTACHMENT_ACCEPT = AI_CHAT_ATTACHMENT_MEDIA_TYPES
   .map((prefix) => (prefix.endsWith("/") ? `${prefix}*` : prefix))
@@ -700,29 +699,16 @@ function MessageList({
   loadingOlder: boolean;
   onLoadOlder: () => Promise<unknown>;
 }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const latestSequence = messages.at(-1)?.sequence ?? null;
   const previousLatestSequence = useRef<number | null>(null);
-  const viewport = () => scrollAreaRef.current
-    ?.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']") ?? null;
-  /**
-   * 只有用户本来就贴着底部时才跟随。直接写 scrollTop 而不是 scrollIntoView：
-   * 后者会启动一次平滑滚动动画，逐帧调用等于持续与用户的滚动打架。
-   */
-  const stickToBottom = useCallback(() => {
-    const element = viewport();
-    if (!element) return;
-    const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-    if (distance > STICK_TO_BOTTOM_PX) return;
-    element.scrollTop = element.scrollHeight;
-  }, []);
+  const viewport = useCallback(() => scrollAreaRef.current
+    ?.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']") ?? null, []);
+  const { stick, reattach, detached } = useStickToBottom(viewport);
   useEffect(() => {
-    if (previousLatestSequence.current !== latestSequence || optimistic) {
-      bottomRef.current?.scrollIntoView({ block: "end" });
-    }
+    if (previousLatestSequence.current !== latestSequence || optimistic) stick();
     previousLatestSequence.current = latestSequence;
-  }, [latestSequence, optimistic]);
+  }, [latestSequence, optimistic, stick]);
   const loadOlder = async () => {
     const element = viewport();
     const previousHeight = element?.scrollHeight ?? 0;
@@ -733,7 +719,7 @@ function MessageList({
     });
   };
   return (
-    <ScrollArea ref={scrollAreaRef} className="min-h-0">
+    <ScrollArea ref={scrollAreaRef} className="relative min-h-0">
       <div className="mx-auto grid w-full max-w-[680px] gap-5 p-4">
         {hasOlder ? (
           <Button type="button" size="sm" variant="ghost" disabled={loadingOlder} onClick={() => void loadOlder()}>
@@ -766,12 +752,23 @@ function MessageList({
               citations={optimistic.citations}
               scope={optimistic.scope}
               steps={optimistic.steps}
-              onGrow={stickToBottom}
+              onGrow={stick}
             />
           </>
         ) : null}
-        <div ref={bottomRef} />
       </div>
+      {detached ? (
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="secondary"
+          className="absolute inset-x-0 bottom-3 mx-auto w-8 rounded-full border border-border"
+          aria-label={m.chat_scroll_to_bottom()}
+          onClick={reattach}
+        >
+          <ArrowDown />
+        </Button>
+      ) : null}
     </ScrollArea>
   );
 }

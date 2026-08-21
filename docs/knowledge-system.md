@@ -124,6 +124,14 @@ L1 是跨项目联想的主力承载：它用余弦相似度回答"整体上像"
 
 ### 新增表
 
+#### 派生数据的删除语义
+
+知识侧的表都是从业务表算出来的，不能反过来挡住业务表的删除。`document_chunks`、`knowledge_embeddings`、`knowledge_edges` 对 `projects`/`documents` 的外键一律 `on delete cascade`：项目或文档被硬删时，它们的派生物跟着消失，不需要先跑一次清理任务。
+
+例外是会话侧。`ai_messages.active_project_id` 用 `on delete set null`——消息是历史事实，项目没了只是指针失效，消息本身必须留下。`ai_message_citations.project_id` 干脆不建外键，它保存的是引用时刻的快照，与项目是否存在无关。
+
+判断标准是一句话：**能重算的跟着走，不能重算的留下来。**
+
 #### knowledge_embeddings
 
 向量独立成表，不挂在 `document_chunks` 上：模型迁移期可双写两个 `model` 并存，宽 vector 列不影响 chunk 表的普通查询，维度变更不动主表。
@@ -614,6 +622,14 @@ token 直接渲染成 React 元素，不经过 `dangerouslySetInnerHTML`，正�
 **可接受的类型必须在入口收敛。** provider 只认 `image/*`、`text/*` 和 `application/pdf`，其余类型会在转换阶段抛 `UnsupportedFunctionalityError`，把整条回答带崩。类型白名单因此定义在 `packages/contracts`，前端用它约束文件选择器并在加入前过滤，后端用同一份做提交校验——一份事实，两端共用。
 
 聊天里的图片附件直接渲染缩略图（`max-h-56 object-contain`，懒加载），点击在新标签打开原图；非图片仍是文件名条目。
+
+### 贴底跟随
+
+流式输出时视口跟随底部，但**跟不跟随由用户手势决定，不能从"当前距底多远"反推**。
+
+这条不是风格偏好，是被真实缺陷逼出来的：正文自己长高时（一帧塞进一个表格或代码块就是几百 px），内容提交后量出来的距底距离天然很大，用它判断会误判成"用户在回看历史"，从此再不跟随。表现是界面看起来卡死，实际内容一直在视口外增长——短回答长不了那么快，所以只有长 Markdown 才暴露。
+
+正确的做法是把跟随当成一个只由 `wheel` 向上、`touchmove`、`ArrowUp/PageUp/Home` 翻页这些主动手势翻转的状态；用户滚回底部附近自动恢复，脱离期间给一个"回到最新"按钮。内容增长本身永远不改变这个状态。
 
 ### 停止与中断
 

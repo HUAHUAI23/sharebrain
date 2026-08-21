@@ -408,6 +408,7 @@
   "chat_scope_choose": "Choose the project for this question",
   "chat_empty_title": "Start with a specific question",
   "chat_thinking": "Searching knowledge…",
+  "chat_scroll_to_bottom": "Jump to latest",
   "chat_resize": "Resize panel",
   "chat_new_conversation": "New chat",
   "chat_stop": "Stop generating",

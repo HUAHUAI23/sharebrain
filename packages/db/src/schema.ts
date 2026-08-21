@@ -788,10 +788,10 @@ export const documentChunks = pgTable(
       .references(() => tenants.id),
     projectId: uuid("project_id")
       .notNull()
-      .references(() => projects.id),
+      .references(() => projects.id, { onDelete: "cascade" }),
     documentId: uuid("document_id")
       .notNull()
-      .references(() => documents.id),
+      .references(() => documents.id, { onDelete: "cascade" }),
     revisionId: uuid("revision_id")
       .notNull()
       .references(() => documentRevisions.id, { onDelete: "cascade" }),
@@ -828,7 +828,7 @@ export const knowledgeEmbeddings = pgTable(
     tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
     ownerType: text("owner_type").notNull(),
     ownerId: uuid("owner_id").notNull(),
-    projectId: uuid("project_id").references(() => projects.id),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
     model: text("model").notNull(),
     embedding: vector("embedding", { dimensions: KNOWLEDGE_EMBEDDING_DIM }).notNull(),
     contentHash: text("content_hash").notNull(),
@@ -861,10 +861,10 @@ export const knowledgeEdges = pgTable(
     tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
     sourceType: text("source_type").notNull(),
     sourceId: uuid("source_id").notNull(),
-    sourceProjectId: uuid("source_project_id").references(() => projects.id),
+    sourceProjectId: uuid("source_project_id").references(() => projects.id, { onDelete: "cascade" }),
     targetType: text("target_type").notNull(),
     targetId: uuid("target_id").notNull(),
-    targetProjectId: uuid("target_project_id").references(() => projects.id),
+    targetProjectId: uuid("target_project_id").references(() => projects.id, { onDelete: "cascade" }),
     relation: text("relation").notNull(),
     weight: real("weight").notNull().default(1),
     origin: text("origin").notNull(),
@@ -1045,7 +1045,7 @@ export const aiMessages = pgTable(
     conversationId: uuid("conversation_id").notNull().references(() => aiConversations.id, { onDelete: "cascade" }),
     sequence: integer("sequence").notNull(),
     role: text("role").notNull(),
-    activeProjectId: uuid("active_project_id").references(() => projects.id),
+    activeProjectId: uuid("active_project_id").references(() => projects.id, { onDelete: "set null" }),
     scopeResolution: text("scope_resolution").notNull().default("none"),
     status: text("status").notNull().default("complete"),
     usage: jsonb("usage").$type<Record<string, unknown>>().notNull().default(jsonbObjectDefault),

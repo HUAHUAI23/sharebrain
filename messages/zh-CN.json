@@ -408,6 +408,7 @@
   "chat_scope_choose": "请选择这次问题对应的项目",
   "chat_empty_title": "从一个具体问题开始",
   "chat_thinking": "正在检索知识…",
+  "chat_scroll_to_bottom": "回到最新",
   "chat_resize": "调整面板宽度",
   "chat_new_conversation": "新对话",
   "chat_stop": "停止生成",
