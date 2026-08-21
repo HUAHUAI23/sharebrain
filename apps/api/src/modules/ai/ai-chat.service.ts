@@ -476,7 +476,10 @@ export class AiChatService {
           });
           return;
         }
-        writer.write({ type: "data-run", data: { id: plan.runId, status: "running" } });
+        writer.write({
+          type: "data-run",
+          data: { id: plan.runId, conversationId: plan.conversationId, status: "running" },
+        });
         const outcome = await this.executeRun(auth, plan, run.leaseId, steps, {
           onScope: (scope) => writer.write({ type: "data-scope", data: scope }),
           onCitations: (citations) => writer.write({ type: "data-citations", data: citations }),

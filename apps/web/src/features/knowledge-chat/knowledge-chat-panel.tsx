@@ -61,7 +61,6 @@ import {
   memo,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -264,7 +263,6 @@ function KnowledgeChatSurface({
   });
 
   const runTurn = async (message: string, explicitProjectId?: string) => {
-    const startedAt = Date.now();
     const readyAttachments = attachments.filter((attachment) =>
       attachment.status === "ready" && attachment.mediaObjectId);
     setStreaming(true);
@@ -280,7 +278,7 @@ function KnowledgeChatSurface({
     setAttachments([]);
     const controller = new AbortController();
     abortRef.current = controller;
-    let customError: string | null = null;
+    let conversationId: string | null = selectedConversationId;
     try {
       await streamKnowledgeChat({
         ...(selectedConversationId ? { conversationId: selectedConversationId } : {}),
@@ -291,6 +289,10 @@ function KnowledgeChatSurface({
         attachments: readyAttachments.flatMap((attachment) =>
           attachment.mediaObjectId ? [attachment.mediaObjectId] : []),
       }, {
+        // 服务端明确告知会话 id，新会话不再靠时间戳猜。
+        onRun(run) {
+          conversationId = run.conversationId;
+        },
         onScope(scope) {
           setOptimistic((current) => current ? { ...current, scope } : current);
         },
@@ -307,39 +309,45 @@ function KnowledgeChatSurface({
           streamBuffer.push(delta);
         },
         onError(error) {
-          customError = error.message;
           setStreamError(error.message);
         },
       }, controller.signal);
       streamBuffer.flush();
-      if (!customError) setOptimistic(null);
     } catch (error) {
       if (!controller.signal.aborted) {
         setStreamError(error instanceof Error ? error.message : m.chat_error());
       }
     } finally {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations });
-      if (selectedConversationId) {
-        await queryClient.invalidateQueries({ queryKey: queryKeys.aiMessages(selectedConversationId) });
-        setOptimistic(null);
-      } else {
-        try {
-          const latest = await apiRequest<ConversationsResponse>("/api/ai/conversations?limit=1");
-          const candidate = latest.items[0];
-          const conversationId = candidate && Date.parse(candidate.updatedAt) >= startedAt - 1_000
-            ? candidate.id
-            : null;
-          if (conversationId) {
-            selectConversation(conversationId);
-            await queryClient.invalidateQueries({ queryKey: queryKeys.aiMessages(conversationId) });
-            setOptimistic(null);
-          }
-        } catch {
-          // 保留本地流结果，下一次成功刷新会以 REST 历史替换它。
-        }
-      }
       abortRef.current = null;
       setStreaming(false);
+      // 先把服务端消息灌进缓存，确认替代内容已经在手，再撤掉本地流式态。
+      // 反过来做会出现一段空窗：回答已经从界面消失，REST 还没回来。
+      await handoffToServer(conversationId ?? selectedConversationId);
+    }
+  };
+
+  /**
+   * 流式结束后的交接。乐观态只有在服务端消息确实进了缓存之后才清除，
+   * 因此界面上不存在"回答先消失、过一会儿再出现"的中间态。
+   */
+  const handoffToServer = async (conversationId: string | null) => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations });
+    if (!conversationId) {
+      // 拿不到会话 id 时宁可留着本地结果，也不要把回答抹掉。
+      return;
+    }
+    try {
+      const page = await apiRequest<MessagesResponse>(
+        `/api/ai/conversations/${conversationId}/messages`,
+      );
+      queryClient.setQueryData(queryKeys.aiMessages(conversationId), {
+        pages: [page],
+        pageParams: [""],
+      });
+      if (conversationId !== selectedConversationId) selectConversation(conversationId);
+      setOptimistic(null);
+    } catch {
+      // 保留本地流结果，下一次成功刷新会以 REST 历史替换它。
     }
   };
 
@@ -700,17 +708,13 @@ function MessageList({
   onLoadOlder: () => Promise<unknown>;
 }) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const latestSequence = messages.at(-1)?.sequence ?? null;
-  const previousLatestSequence = useRef<number | null>(null);
-  const viewport = useCallback(() => scrollAreaRef.current
+  const contentRef = useRef<HTMLDivElement>(null);
+  const getViewport = useCallback(() => scrollAreaRef.current
     ?.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']") ?? null, []);
-  const { stick, reattach, detached } = useStickToBottom(viewport);
-  useEffect(() => {
-    if (previousLatestSequence.current !== latestSequence || optimistic) stick();
-    previousLatestSequence.current = latestSequence;
-  }, [latestSequence, optimistic, stick]);
+  const getContent = useCallback(() => contentRef.current, []);
+  const { reattach, detached } = useStickToBottom({ getViewport, getContent });
   const loadOlder = async () => {
-    const element = viewport();
+    const element = getViewport();
     const previousHeight = element?.scrollHeight ?? 0;
     const previousTop = element?.scrollTop ?? 0;
     await onLoadOlder();
@@ -720,7 +724,7 @@ function MessageList({
   };
   return (
     <ScrollArea ref={scrollAreaRef} className="relative min-h-0">
-      <div className="mx-auto grid w-full max-w-[680px] gap-5 p-4">
+      <div ref={contentRef} className="mx-auto grid w-full max-w-[680px] gap-5 p-4 [overflow-anchor:none]">
         {hasOlder ? (
           <Button type="button" size="sm" variant="ghost" disabled={loadingOlder} onClick={() => void loadOlder()}>
             {loadingOlder ? m.common_loading() : m.chat_load_older()}
@@ -752,7 +756,6 @@ function MessageList({
               citations={optimistic.citations}
               scope={optimistic.scope}
               steps={optimistic.steps}
-              onGrow={stick}
             />
           </>
         ) : null}
@@ -782,17 +785,13 @@ function StreamingAnswer({
   citations,
   scope,
   steps,
-  onGrow,
 }: {
   buffer: ChatStreamBuffer;
   citations: AiCitation[];
   scope: KnowledgeScope | null;
   steps: AiRunStep[];
-  onGrow: () => void;
 }) {
   const text = useSyncExternalStore(buffer.subscribe, buffer.getSnapshot);
-  // 在浏览器绘制之前跟随，避免先看到内容再看到滚动跳一下。
-  useLayoutEffect(onGrow, [text, steps, citations, onGrow]);
   return (
     <ChatText
       role="assistant"

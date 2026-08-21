@@ -101,7 +101,11 @@ export const aiAssistantRunSchema = z.object({
 });
 
 export const aiChatStreamEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("data-run"), data: aiAssistantRunSchema.pick({ id: true, status: true }) }),
+  // 带上 conversationId：新会话的 id 必须由服务端明确告知，不能让前端靠时间戳猜。
+  z.object({
+    type: z.literal("data-run"),
+    data: aiAssistantRunSchema.pick({ id: true, conversationId: true, status: true }),
+  }),
   z.object({ type: z.literal("data-scope"), data: knowledgeScopeSchema }),
   z.object({ type: z.literal("data-step"), data: aiRunStepSchema }),
   z.object({ type: z.literal("data-citations"), data: z.array(aiCitationSchema) }),

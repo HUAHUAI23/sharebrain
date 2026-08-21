@@ -11,7 +11,7 @@ import { ApiClientError } from "../../lib/api-client";
 import { runtimeEnv } from "../../lib/runtime-env";
 
 export type KnowledgeChatStreamHandlers = {
-  onRun?: (run: Pick<AiAssistantRun, "id" | "status">) => void;
+  onRun?: (run: Pick<AiAssistantRun, "id" | "conversationId" | "status">) => void;
   onScope?: (scope: KnowledgeScope) => void;
   onStep?: (step: AiRunStep) => void;
   onCitations?: (citations: AiCitation[]) => void;
@@ -94,7 +94,7 @@ export function dispatchUiStreamLine(
     return;
   }
   if (chunk.type === "data-run") {
-    handlers.onRun?.(chunk.data as Pick<AiAssistantRun, "id" | "status">);
+    handlers.onRun?.(chunk.data as Pick<AiAssistantRun, "id" | "conversationId" | "status">);
   } else if (chunk.type === "data-scope") {
     handlers.onScope?.(chunk.data as KnowledgeScope);
   } else if (chunk.type === "data-step") {
