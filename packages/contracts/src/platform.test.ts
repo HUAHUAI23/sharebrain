@@ -14,8 +14,8 @@ describe("createMediaUploadRequestSchema", () => {
     expect(createMediaUploadRequestSchema.safeParse({ ...baseRequest, usageKind: "inline" }).success).toBe(true);
   });
 
-  test("rejects media usage kinds that are not upload entry points", () => {
+  test("accepts chat attachments and rejects non-upload purposes", () => {
+    expect(createMediaUploadRequestSchema.safeParse({ ...baseRequest, usageKind: "attachment" }).success).toBe(true);
     expect(createMediaUploadRequestSchema.safeParse({ ...baseRequest, usageKind: "cover" }).success).toBe(false);
-    expect(createMediaUploadRequestSchema.safeParse({ ...baseRequest, usageKind: "attachment" }).success).toBe(false);
   });
 });

@@ -6,6 +6,7 @@ import { createDatabaseClient, materializeAutoVersion } from "@sharebrain/db";
 import {
   documentVersions,
   documents,
+  knowledgeIndexJobs,
   projectModules,
   projects,
   tenants,
@@ -136,6 +137,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(knowledgeIndexJobs).where(eq(knowledgeIndexJobs.tenantId, tenantId));
   if (documentIds.length > 0) {
     await db.delete(documentVersions).where(inArray(documentVersions.documentId, documentIds));
     await db.delete(documents).where(inArray(documents.id, documentIds));

@@ -15,12 +15,18 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 
 import { ApiError } from "../../app/api-error";
 import { parseJson } from "../../app/validation";
+import { IndexerService } from "../indexer/indexer.service";
 import { serializeProject, serializeProjectRecent } from "../shared/serializers";
 
 import type { DatabaseClient } from "@sharebrain/db";
+import type { ServerEnv } from "@sharebrain/config";
 
 export class ProjectsService {
-  constructor(private readonly db: DatabaseClient) {}
+  private readonly indexer: IndexerService;
+
+  constructor(private readonly db: DatabaseClient, env: ServerEnv) {
+    this.indexer = new IndexerService(db, env.KNOWLEDGE_INDEX_ENABLED);
+  }
 
   async list(auth: AuthContext) {
     const rows = await this.db
@@ -165,6 +171,7 @@ export class ProjectsService {
       return [project];
     });
 
+    await this.indexer.indexProject(auth, created.id);
     return serializeProject(created);
   }
 
@@ -184,6 +191,7 @@ export class ProjectsService {
       throw new ApiError("PROJECT_NOT_FOUND", "项目不存在。", 404);
     }
 
+    await this.indexer.indexProject(auth, project.id);
     return serializeProject(project);
   }
 
@@ -198,6 +206,7 @@ export class ProjectsService {
       throw new ApiError("PROJECT_NOT_FOUND", "项目不存在。", 404);
     }
 
+    await this.indexer.removeProject(auth, project.id);
     return serializeProject(project);
   }
 
@@ -212,6 +221,7 @@ export class ProjectsService {
       throw new ApiError("PROJECT_NOT_FOUND", "项目不存在。", 404);
     }
 
+    await this.indexer.indexProject(auth, project.id);
     return serializeProject(project);
   }
 

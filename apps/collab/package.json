@@ -14,6 +14,7 @@
     "@sharebrain/config": "workspace:*",
     "@sharebrain/contracts": "workspace:*",
     "@sharebrain/db": "workspace:*",
+    "@sharebrain/knowledge": "workspace:*",
     "@slate-yjs/core": "catalog:",
     "drizzle-orm": "catalog:",
     "slate": "catalog:",

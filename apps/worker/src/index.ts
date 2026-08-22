@@ -8,6 +8,7 @@ import { runDocumentVersionIdleSeal } from "./jobs/document-version-idle-seal";
 import { runDocumentActivityIdleSeal } from "./jobs/document-activity-idle-seal";
 import { runMediaGarbageCollection } from "./jobs/media-gc";
 import { runDocumentVersionRetention } from "./jobs/document-version-retention";
+import { runKnowledgeIndexing } from "./jobs/knowledge-indexing";
 
 const env = loadServerEnv();
 
@@ -78,11 +79,17 @@ if (import.meta.main) {
     name: "documentVersionRetention",
     run: () => runDocumentVersionRetention(db, env),
   });
+  const knowledgeIndexTask = createRecurringTask({
+    intervalMs: env.KNOWLEDGE_JOB_INTERVAL_SECONDS * 1000,
+    name: "knowledgeIndex",
+    run: () => runKnowledgeIndexing(db, env),
+  });
   await Promise.all([
     gcTask.runNow(),
     idleSealTask.runNow(),
     activityIdleSealTask.runNow(),
     retentionTask.runNow(),
+    knowledgeIndexTask.runNow(),
   ]);
   console.info(
     `ShareBrain worker started with concurrency=${env.WORKER_CONCURRENCY}. ${JSON.stringify(getWorkerHealth())}`,
@@ -96,6 +103,7 @@ if (import.meta.main) {
     activityIdleSealTask.start();
   }
   retentionTask.start();
+  if (env.KNOWLEDGE_INDEX_ENABLED) knowledgeIndexTask.start();
 
   await new Promise<void>((resolve) => {
     process.once("SIGTERM", resolve);
@@ -106,6 +114,7 @@ if (import.meta.main) {
     idleSealTask.stop(),
     activityIdleSealTask.stop(),
     retentionTask.stop(),
+    knowledgeIndexTask.stop(),
   ]);
   await db.$client.end({ timeout: 5 });
 }

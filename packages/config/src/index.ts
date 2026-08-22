@@ -64,8 +64,50 @@ export const serverEnvSchema = {
   AI_BASE_URL: z.string().url().optional().or(z.literal("")),
   AI_API_KEY: z.string().optional().or(z.literal("")),
   AI_MODEL: z.string().default("gpt-4o-mini"),
+  // 调试追踪只控制服务端是否向当前 SSE 请求发送诊断数据；生产环境会强制关闭。
+  AI_CHAT_DEBUG_TRACE: z.enum(["off", "safe", "full"]).default("off"),
   AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1).max(32768).default(4096),
+  AI_CHAT_ATTACHMENT_MAX_BYTES: z.coerce.number().int().min(1).default(10 * 1024 * 1024),
+  AI_RUN_RECOVERY_INTERVAL_SECONDS: z.coerce.number().int().min(1).max(3600).default(5),
+  AI_RUN_PROCESSING_TIMEOUT_SECONDS: z.coerce.number().int().min(30).default(300),
+  AI_RUN_RECOVERY_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(10),
+  AI_RUN_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(3),
+  // Bun.serve 的空闲超时默认只有 10 秒，会在模型首字之前掐断 SSE。上限 255。
+  API_IDLE_TIMEOUT_SECONDS: z.coerce.number().int().min(10).max(255).default(240),
+  AI_EMBEDDING_BASE_URL: z.string().url().optional().or(z.literal("")),
+  AI_EMBEDDING_API_KEY: z.string().optional().or(z.literal("")),
+  AI_EMBEDDING_MODEL: z.string().optional().or(z.literal("")),
+  AI_EMBEDDING_BATCH_SIZE: z.coerce.number().int().min(1).max(256).default(32),
+  AI_EXTRACTION_MODEL: z.string().optional().or(z.literal("")),
+  KNOWLEDGE_INDEX_ENABLED: envBoolean.default(true),
+  KNOWLEDGE_CONCEPT_EXTRACTION_ENABLED: envBoolean.default(false),
+  KNOWLEDGE_CONTEXT_TOKEN_BUDGET: z.coerce.number().int().min(1000).max(100000).default(8000),
+  KNOWLEDGE_ACTIVE_PROJECT_MIN_RATIO: z.coerce.number().min(0).max(1).default(0.6),
+  KNOWLEDGE_GRAPH_EXPANSION_MAX_RATIO: z.coerce.number().min(0).max(1).default(0.15),
+  KNOWLEDGE_SIMILARITY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.72),
+  KNOWLEDGE_ANN_ROW_THRESHOLD: z.coerce.number().int().min(1).default(50000),
+  KNOWLEDGE_JOB_INTERVAL_SECONDS: z.coerce.number().int().min(1).max(3600).default(5),
+  KNOWLEDGE_JOB_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(10),
+  KNOWLEDGE_JOB_PROCESSING_TIMEOUT_SECONDS: z.coerce.number().int().min(30).default(300),
 } as const;
+
+export const aiChatDebugTraceLevels = ["off", "safe", "full"] as const;
+export type AiChatDebugTraceLevel = (typeof aiChatDebugTraceLevels)[number];
+
+export function resolveAiChatDebugTrace(env: {
+  NODE_ENV: "development" | "test" | "production";
+  AI_CHAT_DEBUG_TRACE: AiChatDebugTraceLevel;
+}): AiChatDebugTraceLevel {
+  return env.NODE_ENV === "production" ? "off" : env.AI_CHAT_DEBUG_TRACE;
+}
+
+export function resolveEmbeddingConfig(env: ServerEnv) {
+  return {
+    apiKey: env.AI_EMBEDDING_API_KEY || env.AI_API_KEY || "",
+    baseURL: env.AI_EMBEDDING_BASE_URL || env.AI_BASE_URL || "",
+    model: env.AI_EMBEDDING_MODEL || "",
+  };
+}
 
 export const clientEnvSchema = {
   WEB_PUBLIC_API_BASE_URL: z.string().url().optional().or(z.literal("")).default(""),

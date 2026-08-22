@@ -33,6 +33,7 @@
     "@sharebrain/config": "workspace:*",
     "@sharebrain/contracts": "workspace:*",
     "@sharebrain/db": "workspace:*",
+    "@sharebrain/knowledge": "workspace:*",
     "drizzle-orm": "catalog:",
     "hono": "catalog:",
     "sharp": "catalog:",

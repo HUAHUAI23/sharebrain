@@ -17,6 +17,7 @@ COPY packages/contracts/package.json ./packages/contracts/package.json
 COPY packages/db/package.json ./packages/db/package.json
 COPY packages/editor/package.json ./packages/editor/package.json
 COPY packages/i18n/package.json ./packages/i18n/package.json
+COPY packages/knowledge/package.json ./packages/knowledge/package.json
 COPY packages/typescript-config/package.json ./packages/typescript-config/package.json
 COPY packages/ui/package.json ./packages/ui/package.json
 

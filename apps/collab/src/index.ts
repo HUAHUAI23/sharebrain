@@ -188,6 +188,7 @@ export function createCollabServer(
         : null;
       try {
         await storeDocumentSnapshot(db, lastContext, document, {
+          knowledgeIndexEnabled: configuration.KNOWLEDGE_INDEX_ENABLED,
           activityBatches: activityDrain?.batches ?? [],
           ...(snapshotCache
             ? {

@@ -25,6 +25,7 @@
         "@sharebrain/config": "workspace:*",
         "@sharebrain/contracts": "workspace:*",
         "@sharebrain/db": "workspace:*",
+        "@sharebrain/knowledge": "workspace:*",
         "ai": "catalog:",
         "drizzle-orm": "catalog:",
         "hono": "catalog:",
@@ -45,6 +46,7 @@
         "@sharebrain/config": "workspace:*",
         "@sharebrain/contracts": "workspace:*",
         "@sharebrain/db": "workspace:*",
+        "@sharebrain/knowledge": "workspace:*",
         "@slate-yjs/core": "catalog:",
         "drizzle-orm": "catalog:",
         "slate": "catalog:",
@@ -76,6 +78,7 @@
         "@tanstack/react-router": "catalog:",
         "@tanstack/react-table": "catalog:",
         "lucide-react": "catalog:",
+        "marked": "catalog:",
         "platejs": "catalog:",
         "react": "catalog:",
         "react-dom": "catalog:",
@@ -103,11 +106,13 @@
       "name": "@sharebrain/worker",
       "version": "0.1.0",
       "dependencies": {
+        "@ai-sdk/openai-compatible": "catalog:",
         "@aws-sdk/client-s3": "catalog:",
         "@mastra/core": "catalog:",
         "@sharebrain/config": "workspace:*",
         "@sharebrain/contracts": "workspace:*",
         "@sharebrain/db": "workspace:*",
+        "@sharebrain/knowledge": "workspace:*",
         "ai": "catalog:",
         "drizzle-orm": "catalog:",
         "zod": "catalog:",
@@ -253,6 +258,15 @@
         "typescript": "catalog:",
       },
     },
+    "packages/knowledge": {
+      "name": "@sharebrain/knowledge",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@sharebrain/typescript-config": "workspace:*",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/typescript-config": {
       "name": "@sharebrain/typescript-config",
       "version": "0.1.0",
@@ -380,6 +394,7 @@
     "katex": "^0.16.22",
     "lowlight": "^3.3.0",
     "lucide-react": "^1.21.0",
+    "marked": "^15.0.12",
     "pdf-lib": "^1.17.1",
     "platejs": "^53.2.1",
     "postgres": "^3.4.9",
@@ -1025,6 +1040,8 @@
     "@sharebrain/editor": ["@sharebrain/editor@workspace:packages/editor"],
 
     "@sharebrain/i18n": ["@sharebrain/i18n@workspace:packages/i18n"],
+
+    "@sharebrain/knowledge": ["@sharebrain/knowledge@workspace:packages/knowledge"],
 
     "@sharebrain/typescript-config": ["@sharebrain/typescript-config@workspace:packages/typescript-config"],
 

@@ -1,5 +1,10 @@
-import type { DocumentActivityDetails, DocumentVersionValue } from "@sharebrain/contracts";
-import { sql } from "drizzle-orm";
+import type {
+  AiMessagePart,
+  CitationRetrievalTrace,
+  DocumentActivityDetails,
+  DocumentVersionValue,
+} from "@sharebrain/contracts";
+import { type SQL, sql } from "drizzle-orm";
 import {
   bigint,
   bigserial,
@@ -10,15 +15,25 @@ import {
   integer,
   jsonb,
   pgTable,
+  real,
   text,
   timestamp,
   uniqueIndex,
   uuid,
+  vector,
 } from "drizzle-orm/pg-core";
+
+export const KNOWLEDGE_EMBEDDING_DIM = 1024;
 
 const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({
   dataType() {
     return "bytea";
+  },
+});
+
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
   },
 });
 
@@ -704,10 +719,10 @@ export const documentBlocks = pgTable(
       .references(() => tenants.id),
     projectId: uuid("project_id")
       .notNull()
-      .references(() => projects.id),
+      .references(() => projects.id, { onDelete: "cascade" }),
     documentId: uuid("document_id")
       .notNull()
-      .references(() => documents.id),
+      .references(() => documents.id, { onDelete: "cascade" }),
     blockId: text("block_id").notNull(),
     blockType: text("block_type").notNull(),
     path: integer("path").array().notNull(),
@@ -729,7 +744,7 @@ export const searchItems = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id),
-    projectId: uuid("project_id").references(() => projects.id),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
     entityType: text("entity_type").notNull(),
     entityId: uuid("entity_id").notNull(),
     documentId: uuid("document_id"),
@@ -738,6 +753,10 @@ export const searchItems = pgTable(
     title: text("title").notNull(),
     subtitle: text("subtitle"),
     content: text("content").notNull(),
+    searchText: text("search_text").notNull().default(""),
+    searchVector: tsvector("search_vector")
+      .notNull()
+      .generatedAlwaysAs((): SQL => sql`to_tsvector('simple', ${searchItems.searchText})`),
     pathText: text("path_text"),
     tags: text("tags").array().notNull().default(textArrayDefault),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(jsonbObjectDefault),
@@ -756,6 +775,7 @@ export const searchItems = pgTable(
     index("idx_search_items_tenant").on(table.tenantId),
     index("idx_search_items_project").on(table.projectId),
     index("idx_search_items_entity_type").on(table.entityType),
+    index("idx_search_items_search_vector").using("gin", table.searchVector),
   ],
 );
 
@@ -768,24 +788,416 @@ export const documentChunks = pgTable(
       .references(() => tenants.id),
     projectId: uuid("project_id")
       .notNull()
-      .references(() => projects.id),
+      .references(() => projects.id, { onDelete: "cascade" }),
     documentId: uuid("document_id")
       .notNull()
-      .references(() => documents.id),
-    versionNo: integer("version_no").notNull(),
+      .references(() => documents.id, { onDelete: "cascade" }),
+    revisionId: uuid("revision_id")
+      .notNull()
+      .references(() => documentRevisions.id, { onDelete: "cascade" }),
     chunkIndex: integer("chunk_index").notNull(),
+    blockIds: text("block_ids").array().notNull().default(textArrayDefault),
     headingPath: text("heading_path").array().notNull().default(textArrayDefault),
     content: text("content").notNull(),
+    embedText: text("embed_text").notNull(),
+    contentHash: text("content_hash").notNull(),
+    searchText: text("search_text").notNull(),
+    searchVector: tsvector("search_vector")
+      .notNull()
+      .generatedAlwaysAs((): SQL => sql`to_tsvector('simple', ${documentChunks.searchText})`),
     summary: text("summary"),
-    tokenCount: integer("token_count"),
+    tokenCount: integer("token_count").notNull(),
+    isCurrent: boolean("is_current").notNull().default(true),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(jsonbObjectDefault),
     ...ownedColumns,
   },
   (table) => [
-    uniqueIndex("idx_document_chunks_unique").on(table.documentId, table.versionNo, table.chunkIndex),
+    uniqueIndex("idx_document_chunks_unique").on(table.revisionId, table.chunkIndex),
     index("idx_document_chunks_tenant").on(table.tenantId),
     index("idx_document_chunks_project").on(table.projectId),
     index("idx_document_chunks_document").on(table.documentId),
+    index("idx_document_chunks_current").on(table.tenantId, table.isCurrent, table.projectId),
+    index("idx_document_chunks_search_vector").using("gin", table.searchVector),
+  ],
+);
+
+export const knowledgeEmbeddings = pgTable(
+  "knowledge_embeddings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    ownerType: text("owner_type").notNull(),
+    ownerId: uuid("owner_id").notNull(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    model: text("model").notNull(),
+    embedding: vector("embedding", { dimensions: KNOWLEDGE_EMBEDDING_DIM }).notNull(),
+    contentHash: text("content_hash").notNull(),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_knowledge_embeddings_owner_model_unique").on(
+      table.tenantId,
+      table.ownerType,
+      table.ownerId,
+      table.model,
+    ),
+    index("idx_knowledge_embeddings_tenant_owner").on(table.tenantId, table.ownerType),
+    index("idx_knowledge_embeddings_project").on(table.projectId),
+    index("idx_knowledge_embeddings_hnsw").using(
+      "hnsw",
+      table.embedding.op("vector_cosine_ops"),
+    ),
+    check(
+      "chk_knowledge_embeddings_owner_type",
+      sql`${table.ownerType} in ('document_chunk', 'document', 'module_record', 'concept', 'project')`,
+    ),
+  ],
+);
+
+export const knowledgeEdges = pgTable(
+  "knowledge_edges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    sourceType: text("source_type").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    sourceProjectId: uuid("source_project_id").references(() => projects.id, { onDelete: "cascade" }),
+    targetType: text("target_type").notNull(),
+    targetId: uuid("target_id").notNull(),
+    targetProjectId: uuid("target_project_id").references(() => projects.id, { onDelete: "cascade" }),
+    relation: text("relation").notNull(),
+    weight: real("weight").notNull().default(1),
+    origin: text("origin").notNull(),
+    status: text("status").notNull().default("proposed"),
+    evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull().default(jsonbObjectDefault),
+    computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_knowledge_edges_identity_unique").on(
+      table.tenantId,
+      table.sourceType,
+      table.sourceId,
+      table.targetType,
+      table.targetId,
+      table.relation,
+    ),
+    index("idx_knowledge_edges_source").on(table.tenantId, table.sourceType, table.sourceId),
+    index("idx_knowledge_edges_target").on(table.tenantId, table.targetType, table.targetId),
+    index("idx_knowledge_edges_status").on(table.tenantId, table.status, table.relation),
+    check("chk_knowledge_edges_weight", sql`${table.weight} >= 0 and ${table.weight} <= 1`),
+    check("chk_knowledge_edges_origin", sql`${table.origin} in ('embedding', 'parser', 'ai', 'user')`),
+    check("chk_knowledge_edges_status", sql`${table.status} in ('active', 'proposed', 'rejected')`),
+  ],
+);
+
+export const knowledgeConcepts = pgTable(
+  "knowledge_concepts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    name: text("name").notNull(),
+    normalizedName: text("normalized_name").notNull(),
+    type: text("type").notNull(),
+    description: text("description"),
+    status: text("status").notNull().default("proposed"),
+    canonicalId: uuid("canonical_id"),
+    origin: text("origin").notNull().default("ai"),
+    mentionCount: integer("mention_count").notNull().default(0),
+    projectSpread: integer("project_spread").notNull().default(0),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_knowledge_concepts_normalized_active_unique")
+      .on(table.tenantId, table.normalizedName)
+      .where(sql`${table.status} in ('proposed', 'active') and ${table.deletedAt} is null`),
+    index("idx_knowledge_concepts_status_spread").on(table.tenantId, table.status, table.projectSpread),
+    index("idx_knowledge_concepts_canonical").on(table.canonicalId),
+    check(
+      "chk_knowledge_concepts_type",
+      sql`${table.type} in ('technology', 'component', 'problem', 'solution', 'domain_term', 'practice')`,
+    ),
+    check("chk_knowledge_concepts_status", sql`${table.status} in ('proposed', 'active', 'rejected', 'merged')`),
+    check("chk_knowledge_concepts_origin", sql`${table.origin} in ('ai', 'user')`),
+  ],
+);
+
+export const knowledgeConceptAliases = pgTable(
+  "knowledge_concept_aliases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    conceptId: uuid("concept_id").notNull().references(() => knowledgeConcepts.id),
+    alias: text("alias").notNull(),
+    normalizedAlias: text("normalized_alias").notNull(),
+    origin: text("origin").notNull(),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_knowledge_concept_aliases_normalized_unique").on(
+      table.tenantId,
+      table.normalizedAlias,
+    ),
+    index("idx_knowledge_concept_aliases_concept").on(table.conceptId),
+    check("chk_knowledge_concept_aliases_origin", sql`${table.origin} in ('ai', 'user', 'merge')`),
+  ],
+);
+
+export const knowledgeSourceScores = pgTable(
+  "knowledge_source_scores",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    sourceType: text("source_type").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    upCount: integer("up_count").notNull().default(0),
+    downCount: integer("down_count").notNull().default(0),
+    manualWeight: real("manual_weight").notNull().default(1),
+    recomputedAt: timestamp("recomputed_at", { withTimezone: true }).notNull().defaultNow(),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_knowledge_source_scores_source_unique").on(
+      table.tenantId,
+      table.sourceType,
+      table.sourceId,
+    ),
+    check("chk_knowledge_source_scores_manual_weight", sql`${table.manualWeight} >= 0 and ${table.manualWeight} <= 2`),
+  ],
+);
+
+export const knowledgeIndexJobs = pgTable(
+  "knowledge_index_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    targetType: text("target_type").notNull(),
+    targetId: uuid("target_id").notNull(),
+    revisionId: uuid("revision_id").references(() => documentRevisions.id, { onDelete: "set null" }),
+    reason: text("reason").notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    processingAt: timestamp("processing_at", { withTimezone: true }),
+    leaseId: uuid("lease_id"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_knowledge_index_jobs_inflight_unique")
+      .on(table.tenantId, table.targetType, table.targetId)
+      .where(sql`${table.status} in ('pending', 'processing') and ${table.deletedAt} is null`),
+    index("idx_knowledge_index_jobs_status_next").on(table.status, table.nextAttemptAt),
+    index("idx_knowledge_index_jobs_tenant").on(table.tenantId),
+    check("chk_knowledge_index_jobs_target_type", sql`${table.targetType} in ('document', 'module_record', 'project')`),
+    check(
+      "chk_knowledge_index_jobs_reason",
+      sql`${table.reason} in ('revision_sealed', 'record_changed', 'project_changed', 'deleted', 'model_migration', 'manual')`,
+    ),
+    check("chk_knowledge_index_jobs_status", sql`${table.status} in ('pending', 'processing', 'failed', 'completed')`),
+  ],
+);
+
+export const knowledgeMergeProposals = pgTable(
+  "knowledge_merge_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    sourceConceptId: uuid("source_concept_id").notNull().references(() => knowledgeConcepts.id),
+    targetConceptId: uuid("target_concept_id").notNull().references(() => knowledgeConcepts.id),
+    similarity: real("similarity").notNull(),
+    status: text("status").notNull().default("proposed"),
+    evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull().default(jsonbObjectDefault),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_knowledge_merge_proposals_unique").on(
+      table.tenantId,
+      table.sourceConceptId,
+      table.targetConceptId,
+    ),
+    index("idx_knowledge_merge_proposals_status").on(table.tenantId, table.status),
+    check("chk_knowledge_merge_proposals_status", sql`${table.status} in ('proposed', 'accepted', 'rejected')`),
+  ],
+);
+
+export const aiConversations = pgTable(
+  "ai_conversations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    title: text("title").notNull().default("新对话"),
+    lastSequence: integer("last_sequence").notNull().default(0),
+    ...ownedColumns,
+  },
+  (table) => [
+    index("idx_ai_conversations_user_updated").on(table.tenantId, table.userId, table.updatedAt),
+  ],
+);
+
+export const aiMessages = pgTable(
+  "ai_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    conversationId: uuid("conversation_id").notNull().references(() => aiConversations.id, { onDelete: "cascade" }),
+    sequence: integer("sequence").notNull(),
+    role: text("role").notNull(),
+    activeProjectId: uuid("active_project_id").references(() => projects.id, { onDelete: "set null" }),
+    scopeResolution: text("scope_resolution").notNull().default("none"),
+    status: text("status").notNull().default("complete"),
+    usage: jsonb("usage").$type<Record<string, unknown>>().notNull().default(jsonbObjectDefault),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_ai_messages_conversation_sequence_unique").on(table.conversationId, table.sequence),
+    index("idx_ai_messages_tenant_conversation").on(table.tenantId, table.conversationId, table.sequence),
+    check("chk_ai_messages_role", sql`${table.role} in ('user', 'assistant')`),
+    check("chk_ai_messages_scope", sql`${table.scopeResolution} in ('route', 'explicit', 'recent', 'inferred', 'none')`),
+    check("chk_ai_messages_status", sql`${table.status} in ('streaming', 'complete', 'failed')`),
+  ],
+);
+
+export const aiMessageParts = pgTable(
+  "ai_message_parts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    messageId: uuid("message_id").notNull().references(() => aiMessages.id, { onDelete: "cascade" }),
+    partIndex: integer("part_index").notNull(),
+    type: text("type").notNull(),
+    payload: jsonb("payload").$type<AiMessagePart>().notNull(),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_ai_message_parts_message_index_unique").on(table.messageId, table.partIndex),
+    index("idx_ai_message_parts_tenant").on(table.tenantId, table.messageId),
+  ],
+);
+
+export const aiMessageCitations = pgTable(
+  "ai_message_citations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    messageId: uuid("message_id").notNull().references(() => aiMessages.id, { onDelete: "cascade" }),
+    rank: integer("rank").notNull(),
+    sourceType: text("source_type").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    documentId: uuid("document_id"),
+    chunkIndex: integer("chunk_index"),
+    blockIds: text("block_ids").array().notNull().default(textArrayDefault),
+    headingPath: text("heading_path").array().notNull().default(textArrayDefault),
+    titleSnapshot: text("title_snapshot").notNull(),
+    snippet: text("snippet").notNull(),
+    tier: text("tier").notNull(),
+    retrieval: jsonb("retrieval").$type<CitationRetrievalTrace>().notNull(),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_ai_message_citations_message_rank_unique").on(table.messageId, table.rank),
+    index("idx_ai_message_citations_source").on(table.tenantId, table.sourceType, table.sourceId),
+    index("idx_ai_message_citations_project").on(table.projectId),
+    check("chk_ai_message_citations_tier", sql`${table.tier} in ('active_project', 'tenant_global', 'graph_expanded')`),
+  ],
+);
+
+export const aiFeedbackEvents = pgTable(
+  "ai_feedback_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    messageId: uuid("message_id").notNull().references(() => aiMessages.id, { onDelete: "cascade" }),
+    citationId: uuid("citation_id").references(() => aiMessageCitations.id, { onDelete: "cascade" }),
+    vote: text("vote").notNull(),
+    reason: text("reason"),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_ai_feedback_events_target_user_unique").on(
+      table.messageId,
+      table.userId,
+      sql`coalesce(${table.citationId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+    ),
+    index("idx_ai_feedback_events_tenant").on(table.tenantId, table.createdAt),
+    check("chk_ai_feedback_events_vote", sql`${table.vote} in ('up', 'down')`),
+    check(
+      "chk_ai_feedback_events_reason",
+      sql`${table.reason} is null or ${table.reason} in ('irrelevant', 'outdated', 'wrong_project', 'incomplete')`,
+    ),
+  ],
+);
+
+export const aiRetrievalTraces = pgTable(
+  "ai_retrieval_traces",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    messageId: uuid("message_id").notNull().references(() => aiMessages.id, { onDelete: "cascade" }),
+    stages: jsonb("stages").$type<Record<string, unknown>>().notNull().default(jsonbObjectDefault),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_ai_retrieval_traces_message_unique").on(table.messageId),
+    index("idx_ai_retrieval_traces_tenant").on(table.tenantId, table.createdAt),
+  ],
+);
+
+export const aiAssistantRuns = pgTable(
+  "ai_assistant_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    conversationId: uuid("conversation_id").notNull().references(() => aiConversations.id, { onDelete: "cascade" }),
+    userMessageId: uuid("user_message_id").notNull().references(() => aiMessages.id, { onDelete: "cascade" }),
+    assistantMessageId: uuid("assistant_message_id").notNull().references(() => aiMessages.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("queued"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(3),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    processingAt: timestamp("processing_at", { withTimezone: true }),
+    leaseId: uuid("lease_id"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    // 用户主动停止、模型明确空输出这类失败不该被后台恢复循环重跑。
+    retryable: boolean("retryable").notNull().default(true),
+    request: jsonb("request")
+      .$type<{ includeCrossProject?: boolean; requestId?: string }>()
+      .notNull()
+      .default(jsonbObjectDefault),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_ai_assistant_runs_assistant_message_unique").on(table.assistantMessageId),
+    index("idx_ai_assistant_runs_status_next").on(table.status, table.nextAttemptAt),
+    index("idx_ai_assistant_runs_tenant_conversation").on(table.tenantId, table.conversationId),
+    check("chk_ai_assistant_runs_status", sql`${table.status} in ('queued', 'running', 'complete', 'failed')`),
+  ],
+);
+
+export const aiRunSteps = pgTable(
+  "ai_run_steps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    runId: uuid("run_id").notNull().references(() => aiAssistantRuns.id, { onDelete: "cascade" }),
+    stepIndex: integer("step_index").notNull(),
+    kind: text("kind").notNull(),
+    status: text("status").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(jsonbObjectDefault),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    ...ownedColumns,
+  },
+  (table) => [
+    uniqueIndex("idx_ai_run_steps_run_index_unique").on(table.runId, table.stepIndex),
+    index("idx_ai_run_steps_tenant").on(table.tenantId, table.runId),
+    check("chk_ai_run_steps_status", sql`${table.status} in ('pending', 'running', 'complete', 'failed')`),
   ],
 );
 

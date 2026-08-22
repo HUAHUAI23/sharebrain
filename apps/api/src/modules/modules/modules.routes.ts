@@ -90,12 +90,12 @@ export function createModulesRoutes() {
   });
 
   app.get("/api/projects/:projectId/modules/:moduleId/records", async (context) => {
-    const service = new ModuleRecordsService(context.var.db);
+    const service = new ModuleRecordsService(context.var.db, context.var.env);
     return context.json({ items: await service.list(context.var.auth, context.req.param("projectId"), context.req.param("moduleId")) });
   });
 
   app.post("/api/projects/:projectId/modules/:moduleId/records", async (context) => {
-    const service = new ModuleRecordsService(context.var.db);
+    const service = new ModuleRecordsService(context.var.db, context.var.env);
     return context.json(
       await service.create(context.var.auth, context.req.param("projectId"), context.req.param("moduleId"), await context.req.json()),
       201,
@@ -103,12 +103,12 @@ export function createModulesRoutes() {
   });
 
   app.patch("/api/module-records/:recordId", async (context) => {
-    const service = new ModuleRecordsService(context.var.db);
+    const service = new ModuleRecordsService(context.var.db, context.var.env);
     return context.json(await service.update(context.var.auth, context.req.param("recordId"), await context.req.json()));
   });
 
   app.delete("/api/module-records/:recordId", async (context) => {
-    const service = new ModuleRecordsService(context.var.db);
+    const service = new ModuleRecordsService(context.var.db, context.var.env);
     return context.json(await service.remove(context.var.auth, context.req.param("recordId")));
   });
 

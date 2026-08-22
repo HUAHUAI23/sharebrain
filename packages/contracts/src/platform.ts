@@ -49,13 +49,14 @@ export const mediaUsageResourceTypeSchema = z.enum([
   "document_version",
   "document_block",
   "module_record",
+  "ai_message",
 ]);
 export type MediaUsageResourceType = z.infer<typeof mediaUsageResourceTypeSchema>;
 
 export const mediaUsageKindSchema = z.enum(["avatar", "attachment", "cover", "inline"]);
 export type MediaUsageKind = z.infer<typeof mediaUsageKindSchema>;
 
-export const createMediaUploadUsageKindSchema = z.enum(["avatar", "inline"]);
+export const createMediaUploadUsageKindSchema = z.enum(["avatar", "inline", "attachment"]);
 export type CreateMediaUploadUsageKind = z.infer<typeof createMediaUploadUsageKindSchema>;
 
 export const searchEntityTypeSchema = z.enum([
