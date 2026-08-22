@@ -473,4 +473,112 @@ describe("knowledge indexing", () => {
       .where(eq(knowledgeConcepts.id, conceptId));
     expect(concept).toMatchObject({ mentionCount: 0, projectSpread: 0 });
   });
+
+  test("document deletion removes chunks, vectors, graph edges, and source scores", async () => {
+    const fixture = await createFixture();
+    const conceptId = crypto.randomUUID();
+    const chunkId = crypto.randomUUID();
+    await db.insert(documentChunks).values({
+      id: chunkId,
+      tenantId: fixture.tenantId,
+      projectId: fixture.projectId,
+      documentId: fixture.documentId,
+      revisionId: fixture.revisionId,
+      chunkIndex: 0,
+      blockIds: ["delete-document"],
+      headingPath: [],
+      content: "delete document",
+      embedText: "delete document",
+      contentHash: "delete-document-chunk",
+      searchText: "delete document",
+      tokenCount: 2,
+      createdBy: fixture.actorId,
+      updatedBy: fixture.actorId,
+    });
+    await db.insert(searchItems).values({
+      tenantId: fixture.tenantId,
+      projectId: fixture.projectId,
+      entityType: "document",
+      entityId: fixture.documentId,
+      documentId: fixture.documentId,
+      title: "Delete document",
+      content: "Delete document",
+      searchText: "delete document",
+      tags: [],
+      metadata: {},
+      createdBy: fixture.actorId,
+      updatedBy: fixture.actorId,
+    });
+    await db.insert(knowledgeEmbeddings).values({
+      tenantId: fixture.tenantId,
+      ownerType: "document",
+      ownerId: fixture.documentId,
+      projectId: fixture.projectId,
+      model: "delete-document@1024",
+      embedding: embeddingVector(),
+      contentHash: "delete-document",
+      createdBy: fixture.actorId,
+      updatedBy: fixture.actorId,
+    });
+    await db.insert(knowledgeEmbeddings).values({
+      tenantId: fixture.tenantId,
+      ownerType: "document_chunk",
+      ownerId: chunkId,
+      projectId: fixture.projectId,
+      model: "delete-document@1024",
+      embedding: embeddingVector(2),
+      contentHash: "delete-document-chunk",
+      createdBy: fixture.actorId,
+      updatedBy: fixture.actorId,
+    });
+    await db.insert(knowledgeConcepts).values({
+      id: conceptId,
+      tenantId: fixture.tenantId,
+      name: "Document deletion concept",
+      normalizedName: "documentdeletionconcept",
+      type: "practice",
+      status: "active",
+      mentionCount: 1,
+      projectSpread: 1,
+      createdBy: fixture.actorId,
+      updatedBy: fixture.actorId,
+    });
+    await db.insert(knowledgeEdges).values({
+      tenantId: fixture.tenantId,
+      sourceType: "document",
+      sourceId: fixture.documentId,
+      sourceProjectId: fixture.projectId,
+      targetType: "concept",
+      targetId: conceptId,
+      relation: "mentions",
+      weight: 1,
+      origin: "ai",
+      status: "active",
+      evidence: { kind: "mention", salience: "primary" },
+      createdBy: fixture.actorId,
+      updatedBy: fixture.actorId,
+    });
+    await db.insert(knowledgeSourceScores).values({
+      tenantId: fixture.tenantId,
+      sourceType: "document",
+      sourceId: fixture.documentId,
+      createdBy: fixture.actorId,
+      updatedBy: fixture.actorId,
+    });
+
+    const job = await createProcessingJob(fixture, {
+      targetType: "document",
+      targetId: fixture.documentId,
+      reason: "deleted",
+    });
+    await processKnowledgeIndexJob(db, env, job);
+
+    expect(await db.select().from(documentChunks).where(eq(documentChunks.documentId, fixture.documentId))).toHaveLength(0);
+    expect(await db.select().from(knowledgeEmbeddings).where(eq(knowledgeEmbeddings.tenantId, fixture.tenantId))).toHaveLength(0);
+    expect(await db.select().from(knowledgeEdges).where(eq(knowledgeEdges.tenantId, fixture.tenantId))).toHaveLength(0);
+    expect(await db.select().from(searchItems).where(eq(searchItems.tenantId, fixture.tenantId))).toHaveLength(0);
+    expect(await db.select().from(knowledgeSourceScores).where(eq(knowledgeSourceScores.tenantId, fixture.tenantId))).toHaveLength(0);
+    const [concept] = await db.select().from(knowledgeConcepts).where(eq(knowledgeConcepts.id, conceptId));
+    expect(concept).toMatchObject({ mentionCount: 0, projectSpread: 0 });
+  });
 });

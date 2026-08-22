@@ -1,5 +1,5 @@
 // 维护轻量搜索读模型并投递 durable 知识索引任务，禁止在 HTTP 热路径执行 embedding。
-import { enqueueKnowledgeIndexJob } from "@sharebrain/db";
+import { cleanupKnowledgeTarget, enqueueKnowledgeIndexJob } from "@sharebrain/db";
 import {
   documents,
   moduleRecords,
@@ -90,7 +90,12 @@ export class IndexerService {
   }
 
   async removeDocument(auth: AuthContext, documentId: string) {
-    await this.removeSearchItem(auth, "document", documentId);
+    await cleanupKnowledgeTarget(this.db, {
+      tenantId: auth.tenantId,
+      targetType: "document",
+      targetId: documentId,
+      actorId: auth.userId,
+    });
     if (!this.knowledgeIndexEnabled) return;
     await enqueueKnowledgeIndexJob(this.db, {
       tenantId: auth.tenantId,

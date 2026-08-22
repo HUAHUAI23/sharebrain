@@ -4,8 +4,10 @@ import { and, eq, sql } from "drizzle-orm";
 import type { DatabaseClient } from "./client";
 import { knowledgeConcepts } from "./schema";
 
+type KnowledgeConceptCountClient = Pick<DatabaseClient, "update">;
+
 export async function refreshKnowledgeConceptCounts(
-  db: DatabaseClient,
+  db: KnowledgeConceptCountClient,
   tenantId: string,
   conceptIds: string[],
   actorId: string,

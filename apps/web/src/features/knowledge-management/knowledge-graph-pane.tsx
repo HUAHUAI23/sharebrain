@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@sharebrain/ui/components/select";
+import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { FileText, FolderKanban, Tags } from "lucide-react";
 import { useMemo } from "react";
@@ -27,6 +28,7 @@ export function KnowledgeGraphPane({
   onSearchChange: KnowledgeSearchChange;
 }) {
   const isMobile = useIsMobile();
+  const navigate = useNavigate();
   const canvasWidth = isMobile ? 360 : 900;
   const canvasHeight = 520;
   const concepts = useQuery({
@@ -117,14 +119,25 @@ export function KnowledgeGraphPane({
               <g
                 key={node.id}
                 transform={`translate(${node.x} ${node.y})`}
-                className={node.type === "concept" ? "cursor-pointer" : undefined}
-                role={node.type === "concept" ? "button" : undefined}
-                aria-label={node.type === "concept" ? node.label : undefined}
-                tabIndex={node.type === "concept" ? 0 : undefined}
-                onClick={() => node.type === "concept" && onSearchChange({ conceptId: node.id })}
-                onKeyDown={(event) => {
-                  if (node.type === "concept" && (event.key === "Enter" || event.key === " ")) {
+                className={node.type === "concept" || node.type === "document" ? "group cursor-pointer" : undefined}
+                role={node.type === "concept" ? "button" : node.type === "document" ? "link" : undefined}
+                aria-label={node.type === "concept" || node.type === "document" ? node.label : undefined}
+                tabIndex={node.type === "concept" || node.type === "document" ? 0 : undefined}
+                onClick={() => {
+                  if (node.type === "concept") {
                     onSearchChange({ conceptId: node.id });
+                  } else if (node.type === "document") {
+                    void navigate({ to: "/documents/$documentId", params: { documentId: node.id } });
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if ((node.type === "concept" || node.type === "document") && (event.key === "Enter" || event.key === " ")) {
+                    event.preventDefault();
+                    if (node.type === "concept") {
+                      onSearchChange({ conceptId: node.id });
+                    } else {
+                      void navigate({ to: "/documents/$documentId", params: { documentId: node.id } });
+                    }
                   }
                 }}
               >
@@ -140,7 +153,7 @@ export function KnowledgeGraphPane({
                 <text
                   y={node.type === "concept" ? 24 : 21}
                   textAnchor="middle"
-                  className="pointer-events-none fill-foreground text-[10px]"
+                  className="pointer-events-none fill-foreground text-[10px] group-hover:underline"
                 >
                   {truncateLabel(node.label)}
                 </text>

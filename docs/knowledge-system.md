@@ -454,7 +454,7 @@ export const conceptExtractionSchema = z.object({
 
 ### 删除传播
 
-文档软删除、项目删除、tenant 删除均通过同一队列以 `reason='deleted'` 投递，清理该实体的 chunk、embedding、以其为端点的全部 `knowledge_edges`、并递减相关概念的 `mention_count` / `project_spread`。
+文档软删除、项目删除、tenant 删除都会触发派生数据清理。文档删除在 API 删除流程中同步清理该文档的 chunk、embedding、来源评分、以其为端点的全部 `knowledge_edges`，并立即递减相关概念的 `mention_count` / `project_spread`；同时仍投递 `reason='deleted'` 任务，作为 Worker 重试和历史残留的兜底。项目删除沿用 Worker 删除任务清理项目范围内数据。恢复文档只恢复业务正文，随后通过索引任务重新生成向量和图关系。
 
 **引用表不清理**：`ai_message_citations` 持有快照，历史消息必须保真，只在读取时降级展示。
 
@@ -685,7 +685,7 @@ token 直接渲染成 React 元素，不经过 `dangerouslySetInnerHTML`，正�
 | 概念 | 列表按 `project_spread` 默认排序，详情展示别名、提及文档、跨项目分布 |
 | 提议队列 | 三个 tab：新概念、概念关系、合并建议；支持批量确认/拒绝 |
 | 权重 | 按文档/项目/概念设置 `manual_weight`，展示当前反馈聚合 |
-| 关系图 | 只读力导向图，限定 1~2 跳与节点上限，用现有依赖实现，不引入图可视化库 |
+| 关系图 | 有界力导向图，限定 1~2 跳与节点上限，用现有依赖实现，不引入图可视化库；概念节点用于聚焦，文档节点可直接打开对应文档 |
 | 反馈分析 | 引用次数 Top、总体赞踩比、按 `当前项目` / `跨项目` / `图关联` tier 分组的赞踩与好评率、`wrong_project` 反馈趋势 |
 
 **提议队列必须与概念抽取同期上线。** L2 一旦开跑就在持续产生 `proposed` 数据，没有确认入口的话两周后会积压数百条无人处理的提议，图谱质量只会持续劣化。

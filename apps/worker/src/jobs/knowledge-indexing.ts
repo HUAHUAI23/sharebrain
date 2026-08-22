@@ -3,8 +3,8 @@ import type { ServerEnv } from "@sharebrain/config";
 import {
   claimKnowledgeIndexJobs,
   completeKnowledgeIndexJob,
+  cleanupKnowledgeTarget,
   failKnowledgeIndexJob,
-  refreshKnowledgeConceptCounts,
   summarizeKnowledgeIndexError,
 } from "@sharebrain/db";
 import {
@@ -31,7 +31,6 @@ import {
   inArray,
   isNotNull,
   isNull,
-  or,
   sql,
 } from "drizzle-orm";
 
@@ -127,7 +126,7 @@ export async function processKnowledgeIndexJob(
   now = new Date(),
 ) {
   if (job.reason === "deleted") {
-    return cleanupKnowledgeTarget(db, job, now);
+    return cleanupKnowledgeTargetForJob(db, job, now);
   }
   if (job.targetType === "document") return indexDocument(db, env, job, now);
   if (job.targetType === "module_record") return indexModuleRecord(db, env, job, now);
@@ -141,7 +140,7 @@ async function indexDocument(
   now: Date,
 ) {
   const source = await getDocumentSource(db, job);
-  if (!source) return cleanupKnowledgeTarget(db, { ...job, reason: "deleted" }, now);
+  if (!source) return cleanupKnowledgeTargetForJob(db, { ...job, reason: "deleted" }, now);
 
   const chunks = chunkPlateDocument({
     projectName: source.projectName,
@@ -449,7 +448,7 @@ async function indexModuleRecord(
       ),
     )
     .limit(1);
-  if (!record) return cleanupKnowledgeTarget(db, { ...job, reason: "deleted" }, now);
+  if (!record) return cleanupKnowledgeTargetForJob(db, { ...job, reason: "deleted" }, now);
   const content = [record.title, ...Object.values(record.values).map(String)].join("\n");
   return indexSimpleEntity(db, env, job, {
     projectId: record.projectId,
@@ -475,7 +474,7 @@ async function indexProject(
       ),
     )
     .limit(1);
-  if (!project) return cleanupKnowledgeTarget(db, { ...job, reason: "deleted" }, now);
+  if (!project) return cleanupKnowledgeTargetForJob(db, { ...job, reason: "deleted" }, now);
   const content = [project.name, project.description, ...project.tags].filter(Boolean).join("\n");
   return indexSimpleEntity(db, env, job, { projectId: project.id, content, now });
 }
@@ -560,114 +559,18 @@ async function indexSimpleEntity(
   return { embeddingConfigured: true, embedded: 1 };
 }
 
-async function cleanupKnowledgeTarget(
+async function cleanupKnowledgeTargetForJob(
   db: DatabaseClient,
   job: KnowledgeIndexJob,
   now: Date,
 ) {
-  const affectedConcepts = job.targetType === "document" || job.targetType === "project"
-    ? await db
-        .select({ id: knowledgeEdges.targetId })
-        .from(knowledgeEdges)
-        .where(
-          and(
-            eq(knowledgeEdges.tenantId, job.tenantId),
-            eq(knowledgeEdges.sourceType, "document"),
-            job.targetType === "document"
-              ? eq(knowledgeEdges.sourceId, job.targetId)
-              : eq(knowledgeEdges.sourceProjectId, job.targetId),
-            eq(knowledgeEdges.targetType, "concept"),
-            eq(knowledgeEdges.relation, "mentions"),
-          ),
-        )
-    : [];
-  await db.transaction(async (tx) => {
-    if (job.targetType === "document") {
-      const chunks = await tx
-        .select({ id: documentChunks.id })
-        .from(documentChunks)
-        .where(
-          and(
-            eq(documentChunks.tenantId, job.tenantId),
-            eq(documentChunks.documentId, job.targetId),
-          ),
-        );
-      if (chunks.length > 0) {
-        await tx.delete(knowledgeEmbeddings).where(
-          and(
-            eq(knowledgeEmbeddings.tenantId, job.tenantId),
-            eq(knowledgeEmbeddings.ownerType, "document_chunk"),
-            inArray(knowledgeEmbeddings.ownerId, chunks.map((chunk) => chunk.id)),
-          ),
-        );
-      }
-      await tx.delete(documentChunks).where(
-        and(
-          eq(documentChunks.tenantId, job.tenantId),
-          eq(documentChunks.documentId, job.targetId),
-        ),
-      );
-    }
-    if (job.targetType === "project") {
-      await tx.delete(documentChunks).where(and(
-        eq(documentChunks.tenantId, job.tenantId),
-        eq(documentChunks.projectId, job.targetId),
-      ));
-    }
-    await tx.delete(knowledgeEmbeddings).where(
-      and(
-        eq(knowledgeEmbeddings.tenantId, job.tenantId),
-        job.targetType === "project"
-          ? or(
-              eq(knowledgeEmbeddings.projectId, job.targetId),
-              and(
-                eq(knowledgeEmbeddings.ownerType, "project"),
-                eq(knowledgeEmbeddings.ownerId, job.targetId),
-              ),
-            )
-          : and(
-              eq(knowledgeEmbeddings.ownerType, job.targetType),
-              eq(knowledgeEmbeddings.ownerId, job.targetId),
-            ),
-      ),
-    );
-    await tx.delete(knowledgeEdges).where(
-      and(
-        eq(knowledgeEdges.tenantId, job.tenantId),
-        or(
-          and(eq(knowledgeEdges.sourceType, job.targetType), eq(knowledgeEdges.sourceId, job.targetId)),
-          and(eq(knowledgeEdges.targetType, job.targetType), eq(knowledgeEdges.targetId, job.targetId)),
-          job.targetType === "project"
-            ? or(
-                eq(knowledgeEdges.sourceProjectId, job.targetId),
-                eq(knowledgeEdges.targetProjectId, job.targetId),
-              )
-            : undefined,
-        ),
-      ),
-    );
-    await tx.delete(searchItems).where(
-      and(
-        eq(searchItems.tenantId, job.tenantId),
-        job.targetType === "project"
-          ? eq(searchItems.projectId, job.targetId)
-          : and(
-              eq(searchItems.entityType, job.targetType),
-              eq(searchItems.entityId, job.targetId),
-            ),
-      ),
-    );
+  return cleanupKnowledgeTarget(db, {
+    tenantId: job.tenantId,
+    targetType: job.targetType as "document" | "module_record" | "project",
+    targetId: job.targetId,
+    actorId: job.updatedBy,
+    now,
   });
-  if (affectedConcepts.length > 0) {
-    await refreshKnowledgeConceptCounts(
-      db,
-      job.tenantId,
-      affectedConcepts.map((concept) => concept.id),
-      job.updatedBy,
-      now,
-    );
-  }
-  return { deleted: true };
 }
 
 async function getDocumentSource(db: DatabaseClient, job: KnowledgeIndexJob) {
